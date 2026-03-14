@@ -1,0 +1,30 @@
+<svg width="1600" height="520" viewBox="0 0 1600 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E5F1FB"/>
+      <stop offset="1" stop-color="#F4FAF7"/>
+    </linearGradient>
+    <linearGradient id="hillBack" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#CADFD7"/>
+      <stop offset="1" stop-color="#AECAC1"/>
+    </linearGradient>
+    <linearGradient id="hillMid" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B2CEC5"/>
+      <stop offset="1" stop-color="#89B7AA"/>
+    </linearGradient>
+    <linearGradient id="hillFront" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9EC2B7"/>
+      <stop offset="1" stop-color="#6E9E92"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="520" fill="url(#sky)"/>
+  <circle cx="1320" cy="118" r="44" fill="#F9EFC9" opacity="0.9"/>
+  <path d="M0 314C170 286 294 290 456 324C629 361 735 372 915 338C1061 311 1181 283 1367 312C1462 328 1536 354 1600 387V520H0V314Z" fill="url(#hillBack)"/>
+  <path d="M0 366C163 338 305 338 470 368C632 398 788 404 952 368C1118 332 1298 318 1600 394V520H0V366Z" fill="url(#hillMid)"/>
+  <path d="M0 426C188 389 406 390 617 431C820 471 1029 467 1237 431C1377 406 1499 402 1600 423V520H0V426Z" fill="url(#hillFront)"/>
+  <g opacity="0.35">
+    <path d="M230 237C258 219 296 224 318 247" stroke="#8CB3A5" stroke-width="5" stroke-linecap="round"/>
+    <path d="M880 199C905 183 940 184 964 203" stroke="#8CB3A5" stroke-width="5" stroke-linecap="round"/>
+    <path d="M1125 246C1146 233 1175 234 1193 249" stroke="#8CB3A5" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

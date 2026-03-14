@@ -10,18 +10,17 @@ export function buildDefaultState() {
         name: 'Morning',
         defaultMinutes: 180,
         tasks: [
-          { id: 'task-1', title: 'Wake-up routine', done: false, minutes: 15 },
-          { id: 'task-2', title: 'Review top 3 priorities', done: false, minutes: 10 },
-          { id: 'task-3', title: 'Deep work block', done: false, minutes: 45 },
+          { id: 'task-1', title: 'Body scan + quiet input block', done: false, minutes: 25 },
+          { id: 'task-2', title: 'Capture and organize priorities', done: false, minutes: 10 },
         ],
       },
       {
         id: 'phase-2',
         name: 'Afternoon',
-        defaultMinutes: 240,
+        defaultMinutes: 180,
         tasks: [
-          { id: 'task-4', title: 'Admin cleanup', done: false, minutes: 20 },
-          { id: 'task-5', title: 'Errands or outreach', done: false, minutes: null },
+          { id: 'task-3', title: 'Deep work / writing block', done: false, minutes: 50 },
+          { id: 'task-4', title: 'Admin and recovery transitions', done: false, minutes: 20 },
         ],
       },
       {
@@ -29,13 +28,14 @@ export function buildDefaultState() {
         name: 'Evening',
         defaultMinutes: 180,
         tasks: [
-          { id: 'task-6', title: 'Reset space', done: false, minutes: 15 },
-          { id: 'task-7', title: 'Wind-down routine', done: false, minutes: 30 },
+          { id: 'task-5', title: 'System review and reset', done: false, minutes: 15 },
+          { id: 'task-6', title: 'Wind-down routine', done: false, minutes: 30 },
         ],
       },
     ],
     activePhaseId: 'phase-1',
     healthState: 'steady',
+    routineType: 'session',
     preferences: {
       setupComplete: false,
       timeZone: 'UTC',
@@ -84,6 +84,7 @@ export function normalizeState(input) {
       ? input.activePhaseId
       : firstPhaseId,
     healthState: HEALTH_OPTIONS.includes(input.healthState) ? input.healthState : fallback.healthState,
+    routineType: input.routineType === 'integration' ? 'integration' : 'session',
     preferences: {
       setupComplete: Boolean(input.preferences?.setupComplete),
       timeZone:
