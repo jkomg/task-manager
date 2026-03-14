@@ -333,6 +333,27 @@ function circadianWindow(hour) {
   };
 }
 
+function toF(c) {
+  return Math.round(c * 9 / 5 + 32);
+}
+
+function getLightRecommendation(hour, weather) {
+  if (!weather) return null;
+  const uv = weather.uvNow;
+  if (hour >= 5 && hour < 9) {
+    if (uv != null && uv >= 6) return `UV already ${uv} — morning light through a window or open door works. Avoid prolonged direct exposure.`;
+    return 'Get outside now — morning light in the first 1–2 hours after waking is the strongest circadian anchor you have.';
+  }
+  if (hour >= 9 && hour < 12) {
+    if (uv != null && uv >= 7) return `UV is ${uv} — bright indoor light or a shaded outdoor spot works. Keep direct exposure under 10 min.`;
+    return `UV ${uv ?? 'low'} — a 10–15 min outdoor break now supports alertness and helps lock in your wake signal.`;
+  }
+  if (hour >= 16 && hour < 20 && weather.sunset) {
+    return `Late afternoon light before sunset helps delay melatonin onset — even 10 min outside counts.`;
+  }
+  return null;
+}
+
 function greetingFor(period, weekday, name) {
   const byPeriod = {
     morning: `Good morning, ${name}.`,
@@ -456,6 +477,7 @@ export default function App() {
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [taskTimers, setTaskTimers] = useState({});
   const [checkInDone, setCheckInDone] = useState(false);
+  const [collapsedPhases, setCollapsedPhases] = useState(new Set());
   const [quickAddInputs, setQuickAddInputs] = useState({});
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
@@ -818,6 +840,18 @@ export default function App() {
         return { ...current, [taskId]: { ...existing, running: true } };
       }
       return { ...current, [taskId]: { seconds: minutes * 60, running: true } };
+    });
+  }
+
+  function togglePhaseCollapsed(phaseId) {
+    setCollapsedPhases((current) => {
+      const next = new Set(current);
+      if (next.has(phaseId)) {
+        next.delete(phaseId);
+      } else {
+        next.add(phaseId);
+      }
+      return next;
     });
   }
 
@@ -1191,26 +1225,35 @@ export default function App() {
             </div>
 
             {/* Context strip: time + weather + circadian */}
-            <div className="context-strip card">
-              <div className="context-strip-top">
-                <span className="context-greeting">{greeting}</span>
-                {weather ? (
-                  <span className="context-weather-inline">
-                    {weather.summary} · {Math.round(weather.temperatureC)}°C
-                    {' · '}↑{formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}
-                    {' '}↓{formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}
-                    {weather.uvNow != null ? ` · UV ${weather.uvNow}` : ''}
-                  </span>
-                ) : mindContext.loading ? (
-                  <span className="context-weather-inline muted-copy">Loading weather…</span>
-                ) : null}
-              </div>
-              <div className="context-strip-circadian">
-                <strong>{circadian.label}:</strong>{' '}
-                {circadian.cognitive ?? circadian.body}
-                {circadian.light && <span className="context-light-tip"> · {circadian.light}</span>}
-              </div>
-            </div>
+            {(() => {
+              const lightRec = getLightRecommendation(contextHour, weather);
+              return (
+                <div className="context-strip card">
+                  <div className="context-strip-top">
+                    <span className="context-greeting">{greeting}</span>
+                    {weather ? (
+                      <span className="context-weather-inline">
+                        {weather.summary} · {toF(weather.temperatureC)}°F
+                        {' · '}↑{formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}
+                        {' '}↓{formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}
+                        {weather.uvNow != null ? ` · UV ${weather.uvNow}` : ''}
+                      </span>
+                    ) : mindContext.loading ? (
+                      <span className="context-weather-inline muted-copy">Loading weather…</span>
+                    ) : null}
+                  </div>
+                  <div className="context-strip-circadian">
+                    <strong>{circadian.label}:</strong>{' '}
+                    {circadian.cognitive ?? circadian.body}
+                  </div>
+                  {lightRec && (
+                    <div className="context-light-rec">
+                      ☀ {lightRec}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Morning check-in (dismissible) */}
             {!checkInDone && (
@@ -1264,26 +1307,28 @@ export default function App() {
                 const em = getEnergyMode(phase.name);
                 const suggestions = getSuggestions(settings.routineType, phase.name);
 
+                const isCollapsed = collapsedPhases.has(phase.id);
+
                 return (
-                  <section key={phase.id} className={`phase-section ${isActive ? 'active' : ''}`}>
-                    {/* Phase header */}
+                  <section key={phase.id} className={`phase-section ${isActive ? 'active' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
+                    {/* Phase header — always clickable to collapse/expand */}
                     <div
                       className="phase-section-header"
-                      onClick={() => !isActive && setSettingsPatch({ activePhaseId: phase.id })}
-                      role={isActive ? undefined : 'button'}
-                      tabIndex={isActive ? undefined : 0}
-                      onKeyDown={(e) => e.key === 'Enter' && !isActive && setSettingsPatch({ activePhaseId: phase.id })}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => togglePhaseCollapsed(phase.id)}
+                      onKeyDown={(e) => e.key === 'Enter' && togglePhaseCollapsed(phase.id)}
                     >
                       <div className="phase-header-left">
                         {isActive && <span className="active-dot" aria-label="Active phase" />}
                         <div>
                           <h3 className="phase-header-name">{phase.name}</h3>
-                          <span className="phase-header-meta">{fmtH(startH)}–{fmtH(endH)} · {em.mode}</span>
+                          {!isCollapsed && <span className="phase-header-meta">{fmtH(startH)}–{fmtH(endH)} · {em.mode}</span>}
                         </div>
                       </div>
                       <div className="phase-header-right">
                         <span className="phase-task-count">{doneTasks}/{tasks.length}</span>
-                        {isActive && (
+                        {isActive && !isCollapsed && (
                           phaseRunning ? (
                             <div className="phase-timer-inline">
                               <span className="phase-timer-display">{formatSeconds(phaseRemaining)}</span>
@@ -1299,8 +1344,12 @@ export default function App() {
                             </button>
                           )
                         )}
+                        <span className="phase-chevron">{isCollapsed ? '▸' : '▾'}</span>
                       </div>
                     </div>
+
+                    {/* Collapsible body */}
+                    {!isCollapsed && <>
 
                     {/* Task list */}
                     <div className="task-list">
@@ -1390,6 +1439,8 @@ export default function App() {
                         {mindAction && <p className="status-message">{mindAction}</p>}
                       </>
                     )}
+
+                    </>}{/* end collapsible body */}
                   </section>
                 );
               })}
