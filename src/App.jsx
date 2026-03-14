@@ -16,19 +16,32 @@ const TASK_LIBRARY = {
   session: {
     morning: [
       { title: 'Body scan + jaw check', minutes: 3 },
-      { title: 'Phase 1 input reading', minutes: 25 },
+      { title: 'Input reading', minutes: 25 },
       { title: 'Capture ideas in notebook', minutes: 10 },
       { title: 'Spanish primer', minutes: 20 },
     ],
-    afternoon: [
+    activation: [
+      { title: 'Compost existing captures', minutes: 20 },
+      { title: 'Light writing touch', minutes: 25 },
+      { title: 'Spanish mid-touch', minutes: 15 },
+      { title: 'Define one outcome for Deep Window', minutes: 5 },
+    ],
+    deep: [
       { title: 'Deep writing block (Draft or Revise)', minutes: 50 },
-      { title: 'Admin and logistics sweep', minutes: 20 },
+      { title: 'Reading as writer (craft study)', minutes: 25 },
+      { title: 'Admin sweep', minutes: 20 },
+      { title: 'Spanish focused review', minutes: 20 },
+    ],
+    recovery: [
       { title: 'Rehab movement set', minutes: 30 },
-      { title: 'Reading as writer', minutes: 25 },
+      { title: 'Upright tolerance block', minutes: 15 },
+      { title: 'Legs up / restorative break', minutes: 15 },
+      { title: 'Capture one sentence', minutes: 5 },
     ],
     evening: [
-      { title: 'System review and tomorrow setup', minutes: 15 },
-      { title: 'Low-stakes study or reading', minutes: 25 },
+      { title: 'System review + tomorrow setup', minutes: 15 },
+      { title: 'Light Spanish', minutes: 20 },
+      { title: 'Low-stakes reading or study', minutes: 25 },
       { title: 'Wind-down routine', minutes: 30 },
     ],
     custom: [
@@ -44,11 +57,20 @@ const TASK_LIBRARY = {
       { title: 'Capture one sentence', minutes: 5 },
       { title: 'Spanish light touch', minutes: 15 },
     ],
-    afternoon: [
-      { title: 'Compost existing notes', minutes: 20 },
+    activation: [
+      { title: 'Compost existing notes (light)', minutes: 20 },
       { title: 'Lower-load writing touch', minutes: 25 },
-      { title: 'Toe lifts / textured surface', minutes: 10 },
-      { title: 'Restorative break', minutes: 15 },
+      { title: 'Spanish easy review', minutes: 15 },
+    ],
+    deep: [
+      { title: 'Lower-load writing or Study mode', minutes: 25 },
+      { title: 'Gentle reading', minutes: 20 },
+      { title: 'Easy maintenance task', minutes: 20 },
+    ],
+    recovery: [
+      { title: 'Toe lifts + textured surface', minutes: 10 },
+      { title: 'Restorative break / legs up', minutes: 20 },
+      { title: '90/90 breathing if okay', minutes: 10 },
     ],
     evening: [
       { title: 'Flare protocol check-in', minutes: 10 },
@@ -63,33 +85,110 @@ const TASK_LIBRARY = {
   },
 };
 
+// Energy modes from the PDF phase time map
+const PHASE_ENERGY_MODES = {
+  'quiet window':       { mode: 'Receptive + Absorptive',   hint: 'Input, gentle focus, capture' },
+  'activation bridge':  { mode: 'Transitional',             hint: 'Compost, light writing, bridging to depth' },
+  'deep window':        { mode: 'Generative + Executive',   hint: 'Draft, revise, deep cognitive work' },
+  'body + recovery':    { mode: 'Physical + Lighter',       hint: 'Movement, rehab, restorative breaks' },
+  'afternoon drift':    { mode: 'Flexible + Admin',         hint: 'Review, admin, light maintenance' },
+  'evening wind-down':  { mode: 'Settling',                 hint: 'Wind-down, light reading, planning tomorrow' },
+  morning:              { mode: 'Receptive + Absorptive',   hint: 'Input, gentle focus, capture' },
+  afternoon:            { mode: 'Generative + Executive',   hint: 'Draft, revise, deep cognitive work' },
+  evening:              { mode: 'Settling',                 hint: 'Wind-down, review, light tasks' },
+};
+
+function getEnergyMode(phaseName) {
+  const key = String(phaseName ?? '').toLowerCase().trim();
+  return (
+    PHASE_ENERGY_MODES[key] ??
+    PHASE_ENERGY_MODES[getPhaseKey(phaseName)] ??
+    { mode: 'Focused', hint: 'Keep scope small and visible.' }
+  );
+}
+
+// Writing modes from the PDF
+const WRITING_MODES = {
+  Capture: { energy: 'Almost none', bestWhen: 'Anytime', counts: 'A sentence, a phrase, a question' },
+  Compost: { energy: 'Low–medium', bestWhen: 'Activation Bridge or low-energy Deep Window', counts: 'Connect captures, expand a fragment' },
+  Draft:   { energy: 'High',       bestWhen: 'Deep Window with momentum',                   counts: '200–500 words of new material' },
+  Revise:  { energy: 'Medium',     bestWhen: 'Deep Window or second-wind evenings',          counts: 'Make a draft 20% better' },
+  Study:   { energy: 'Low–medium', bestWhen: 'Deep Window reading block or Quiet Window',    counts: 'Annotate, copy sentences, reverse-engineer' },
+};
+
+function getRecommendedWritingMode(phaseName, healthState) {
+  const n = String(phaseName ?? '').toLowerCase();
+  const isQuiet      = n.includes('quiet') || n.includes('morning');
+  const isActivation = n.includes('activation') || n.includes('bridge');
+  const isDeep       = n.includes('deep') || n.includes('window') || n.includes('afternoon') || n.includes('midday');
+  const isBody       = n.includes('body') || n.includes('recovery');
+  const isEvening    = n.includes('drift') || n.includes('wind') || n.includes('evening') || n.includes('night');
+
+  if (isQuiet) return 'Study';
+  if (isActivation) return healthState === 'drained' ? 'Capture' : 'Compost';
+  if (isDeep) {
+    if (healthState === 'drained') return 'Study';
+    if (healthState === 'scattered') return 'Compost';
+    return 'Draft';
+  }
+  if (isBody) return 'Capture';
+  if (isEvening) return healthState === 'drained' ? 'Capture' : 'Revise';
+  if (healthState === 'drained') return 'Capture';
+  if (healthState === 'scattered') return 'Compost';
+  return 'Draft';
+}
+
 const DEFAULT_SETTINGS = {
   phases: [
     {
       id: 'phase-1',
-      name: 'Morning',
-      defaultMinutes: 180,
+      name: 'Quiet Window',
+      defaultMinutes: 90,
       tasks: [
-        { id: 'task-1', title: 'Body scan + quiet input block', done: false, minutes: 25 },
-        { id: 'task-2', title: 'Capture and organize priorities', done: false, minutes: 10 },
+        { id: 'task-1', title: 'Body scan + jaw check', done: false, minutes: 3 },
+        { id: 'task-2', title: 'Input reading', done: false, minutes: 25 },
+        { id: 'task-3', title: 'Capture ideas in notebook', done: false, minutes: 10 },
+        { id: 'task-4', title: 'Spanish primer', done: false, minutes: 20 },
       ],
     },
     {
       id: 'phase-2',
-      name: 'Afternoon',
-      defaultMinutes: 180,
+      name: 'Activation Bridge',
+      defaultMinutes: 60,
       tasks: [
-        { id: 'task-3', title: 'Deep work / writing block', done: false, minutes: 50 },
-        { id: 'task-4', title: 'Admin and recovery transitions', done: false, minutes: 20 },
+        { id: 'task-5', title: 'Compost existing captures', done: false, minutes: 20 },
+        { id: 'task-6', title: 'Light writing touch', done: false, minutes: 25 },
+        { id: 'task-7', title: 'Spanish mid-touch', done: false, minutes: 15 },
       ],
     },
     {
       id: 'phase-3',
-      name: 'Evening',
-      defaultMinutes: 180,
+      name: 'Deep Window',
+      defaultMinutes: 150,
       tasks: [
-        { id: 'task-5', title: 'System review and reset', done: false, minutes: 15 },
-        { id: 'task-6', title: 'Wind-down routine', done: false, minutes: 30 },
+        { id: 'task-8', title: 'Deep writing block (Draft or Revise)', done: false, minutes: 50 },
+        { id: 'task-9', title: 'Reading as writer (craft study)', done: false, minutes: 25 },
+        { id: 'task-10', title: 'Admin sweep', done: false, minutes: 20 },
+      ],
+    },
+    {
+      id: 'phase-4',
+      name: 'Body + Recovery',
+      defaultMinutes: 120,
+      tasks: [
+        { id: 'task-11', title: 'Rehab movement set', done: false, minutes: 30 },
+        { id: 'task-12', title: 'Legs up / restorative break', done: false, minutes: 15 },
+        { id: 'task-13', title: 'Capture one sentence', done: false, minutes: 5 },
+      ],
+    },
+    {
+      id: 'phase-5',
+      name: 'Afternoon Drift',
+      defaultMinutes: 120,
+      tasks: [
+        { id: 'task-14', title: 'System review + tomorrow setup', done: false, minutes: 15 },
+        { id: 'task-15', title: 'Light Spanish', done: false, minutes: 20 },
+        { id: 'task-16', title: 'Wind-down routine', done: false, minutes: 30 },
       ],
     },
   ],
@@ -135,16 +234,12 @@ function firstName(displayName) {
 }
 
 function getPhaseKey(name) {
-  const normalized = String(name || '').toLowerCase();
-  if (normalized.includes('morning')) {
-    return 'morning';
-  }
-  if (normalized.includes('afternoon') || normalized.includes('midday')) {
-    return 'afternoon';
-  }
-  if (normalized.includes('evening') || normalized.includes('night')) {
-    return 'evening';
-  }
+  const n = String(name || '').toLowerCase();
+  if (n.includes('quiet') || n.includes('morning')) return 'morning';
+  if (n.includes('activation') || n.includes('bridge')) return 'activation';
+  if (n.includes('deep') || n.includes('window') || n.includes('afternoon') || n.includes('midday')) return 'deep';
+  if (n.includes('body') || n.includes('recovery')) return 'recovery';
+  if (n.includes('drift') || n.includes('wind') || n.includes('evening') || n.includes('night')) return 'evening';
   return 'custom';
 }
 
@@ -293,6 +388,7 @@ export default function App() {
   const [locationStatus, setLocationStatus] = useState('');
   const [mindContext, setMindContext] = useState({ loading: false, data: null, error: '' });
   const [mindAction, setMindAction] = useState('');
+  const [dayCheck, setDayCheck] = useState(null); // null | 'better' | 'mildly-worse' | 'clearly-worse'
   const [authForm, setAuthForm] = useState({
     displayName: '',
     email: '',
@@ -722,6 +818,15 @@ export default function App() {
     setMindAction(`Start "${nextTask.title}" now for ${durationHint}. Keep distractions out until it is done.`);
   }
 
+  function handleDayCheck(result) {
+    setDayCheck(result);
+    if (result === 'clearly-worse') {
+      setSettingsPatch({ routineType: 'integration' });
+    } else {
+      setSettingsPatch({ routineType: 'session' });
+    }
+  }
+
   function refreshContext() {
     const lat = settings.preferences?.location?.latitude;
     const lon = settings.preferences?.location?.longitude;
@@ -804,10 +909,17 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <img src={calmBanner} alt="Calming landscape banner" className="calm-banner" />
-        <div>
-          <p className="eyebrow">Focus Flow</p>
-          <h1>Daily rhythm dashboard</h1>
-          <p className="lede">Signed in as {user.displayName}. Save status: {saveStatus}</p>
+
+        <div className="sidebar-identity">
+          <span className="sidebar-app-name">Focus Flow</span>
+          <div className="sidebar-user">
+            <span>{firstName(user.displayName)}</span>
+            <span
+              className={`save-dot ${saveStatus === 'Saving...' ? 'saving' : saveStatus.startsWith('All') ? 'saved' : 'error'}`}
+              title={saveStatus}
+              aria-label={saveStatus}
+            />
+          </div>
         </div>
 
         {!settings.preferences?.setupComplete && (
@@ -837,51 +949,35 @@ export default function App() {
           </section>
         )}
 
-        <div className="phase-list">
-          {settings.phases.map((phase) => {
-            const openTasks = phase.tasks.filter((task) => !task.done).length;
-            return (
-              <button
-                key={phase.id}
-                className={`phase-chip ${phase.id === settings.activePhaseId ? 'active' : ''}`}
-                onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
-              >
-                <span>{phase.name}</span>
-                <small>{openTasks} open tasks</small>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="card nav-note-card">
-          <p className="card-label">Navigation</p>
-          <p className="muted-copy">Need to adjust phase structure? Open Settings.</p>
-          <div className="button-row">
-            <button className="ghost small" onClick={() => setSiteView('settings')}>Open settings</button>
-            <button className="ghost small" onClick={() => setSiteView('profile')}>Open profile</button>
+        <div className="sidebar-footer">
+          <div className="sidebar-progress">
+            <div className="progress-track" aria-label={`${Math.round(completionRatio * 100)}% of phase tasks complete`}>
+              <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
+            </div>
+            <span className="sidebar-progress-label">{Math.round(completionRatio * 100)}%</span>
           </div>
-        </div>
-
-        <div className="card accent-card">
-          <p className="card-label">Progress</p>
-          <strong>{Math.round(completionRatio * 100)}% complete</strong>
-          <div className="progress-track" aria-hidden="true">
-            <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
+          <div className="sidebar-nav-links">
+            <button className="ghost small" onClick={() => setSiteView('settings')}>Settings</button>
+            <button className="ghost small" onClick={() => setSiteView('profile')}>Profile</button>
           </div>
         </div>
       </aside>
 
       <main className={siteView === 'planner' ? 'main-grid' : 'main-stack'}>
         <header className="card topbar-card">
-          <div>
-            <p className="card-label">Workspace</p>
-            <h2>{siteView === 'planner' ? 'Dashboard' : siteView === 'settings' ? 'Settings' : 'Profile'}</h2>
-          </div>
+          {siteView !== 'planner' ? (
+            <div>
+              <p className="card-label">Focus Flow</p>
+              <h2>{siteView === 'settings' ? 'Settings' : 'Profile'}</h2>
+            </div>
+          ) : (
+            <span className="topbar-app-name">Focus Flow</span>
+          )}
 
           <div className="topbar-actions">
             {siteView !== 'planner' && (
               <button className="ghost small" onClick={() => setSiteView('planner')}>
-                Back to dashboard
+                Back
               </button>
             )}
             <div className="profile-menu-wrap" ref={menuRef}>
@@ -977,32 +1073,64 @@ export default function App() {
 
         {siteView === 'planner' && (
           <>
+            {/* Phase time map */}
+            <div className="card phase-map-card">
+              {(() => {
+                let cumulativeHours = 0;
+                return settings.phases.map((phase) => {
+                  const startH = cumulativeHours;
+                  cumulativeHours += phase.defaultMinutes / 60;
+                  const endH = cumulativeHours;
+                  const isActive = phase.id === settings.activePhaseId;
+                  const em = getEnergyMode(phase.name);
+                  const openTasks = phase.tasks.filter((t) => !t.done).length;
+                  const fmtH = (h) => Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
+                  return (
+                    <button
+                      key={phase.id}
+                      className={`phase-map-segment ${isActive ? 'active' : ''}`}
+                      onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
+                      title={em.hint}
+                    >
+                      <span className="phase-map-hours">{fmtH(startH)}–{fmtH(endH)}</span>
+                      <span className="phase-map-name">
+                        {phase.name}
+                        {openTasks > 0 && <span className="phase-map-badge">{openTasks}</span>}
+                      </span>
+                      <span className="phase-map-mode">{em.mode}</span>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Hero / phase timer card */}
             <section className="card hero-card">
-              <div className="hero-topline">
+              <div className="hero-main">
                 <div>
                   <p className="card-label">Current phase</p>
                   <h2>{activePhase.name}</h2>
+                  <p className="phase-energy-label">{getEnergyMode(activePhase.name).mode}</p>
                 </div>
-                <div className={`timer-pill ${phaseRunning ? 'running' : ''}`}>{formatSeconds(phaseRemaining)}</div>
-              </div>
-
-              <div className="phase-controls">
-                <label>
-                  Phase duration (minutes)
-                  <input type="number" min="1" value={phaseDurationInput} onChange={(event) => setPhaseDurationInput(event.target.value)} />
-                </label>
-                <label>
-                  Phase name
-                  <input type="text" value={activePhase.name} onChange={(event) => updateActivePhase({ name: event.target.value })} />
-                </label>
-                <div className="button-row phase-action-row">
-                  <button onClick={handleStartPhase}>Start phase</button>
-                  <button className="secondary" onClick={handlePausePhase}>Pause</button>
-                  <button className="ghost" onClick={handleResetPhase}>Reset</button>
+                <div className="hero-timer-area">
+                  <div className={`timer-pill ${phaseRunning ? 'running' : ''}`}>{formatSeconds(phaseRemaining)}</div>
+                  <div className="timer-controls">
+                    <input
+                      type="number"
+                      className="duration-input"
+                      value={phaseDurationInput}
+                      onChange={(event) => setPhaseDurationInput(event.target.value)}
+                      title="Duration in minutes"
+                    />
+                    <button onClick={handleStartPhase}>Start</button>
+                    <button className="secondary" onClick={handlePausePhase}>Pause</button>
+                    <button className="ghost" onClick={handleResetPhase}>Reset</button>
+                  </div>
                 </div>
               </div>
             </section>
 
+            {/* Mind Check card */}
             <section className="card">
               <div className="section-header">
                 <div>
@@ -1011,28 +1139,71 @@ export default function App() {
                 </div>
               </div>
 
-              <p className="recommendation">
-                {activePhase.id === 'phase-1'
-                  ? 'Phase 1 starts your day: front-load planning, attention shaping, and one decisive action.'
-                  : `You are in ${activePhase.name}. Keep transitions deliberate and visible.`}
-              </p>
-
-              {mindContext.loading && <p className="status-message">Refreshing weather and daylight context...</p>}
-              {mindContext.error && <p className="status-message error">{mindContext.error}</p>}
-              {weather && (
-                <div className="context-box">
-                  <p>
-                    Current weather is {weather.summary} at {Math.round(weather.temperatureC)}°C.
-                    Sunrise: {formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}. Sunset: {formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}.
-                  </p>
-                  <p>
-                    UV now {weather.uvNow ?? 'n/a'}, max today {weather.uvMax ?? 'n/a'}. {weather.lightSuggestion}
-                  </p>
+              {/* Morning body scan / day type decision tree */}
+              <div className="day-check-row">
+                <span className="day-check-label">Body scan</span>
+                <div className="day-check-options">
+                  <button
+                    className={`day-check-btn ${dayCheck === 'better' ? 'selected' : ''}`}
+                    onClick={() => handleDayCheck('better')}
+                    title="Better or Same → Session Day"
+                  >
+                    Better / Same
+                  </button>
+                  <button
+                    className={`day-check-btn warn ${dayCheck === 'mildly-worse' ? 'selected' : ''}`}
+                    onClick={() => handleDayCheck('mildly-worse')}
+                    title="Mildly Worse → Session Day with adjustments"
+                  >
+                    Mildly Worse
+                  </button>
+                  <button
+                    className={`day-check-btn danger ${dayCheck === 'clearly-worse' ? 'selected' : ''}`}
+                    onClick={() => handleDayCheck('clearly-worse')}
+                    title="Clearly Worse → Integration Day"
+                  >
+                    Clearly Worse
+                  </button>
                 </div>
+              </div>
+
+              {dayCheck === 'mildly-worse' && (
+                <p className="decision-note warn">Session day — reduce upright block 2 min, skip side-lying work, extra legs up, consider cold face immersion.</p>
+              )}
+              {dayCheck === 'clearly-worse' && (
+                <p className="decision-note danger">Integration day. Morning regulation only. Legs up liberally. Toe lifts + textured surface okay.</p>
               )}
 
+              {/* Circadian guidance */}
+              <p className="recommendation" style={{ marginTop: '0.75rem' }}>
+                {getEnergyMode(activePhase.name).hint}
+              </p>
               <p className="recommendation">{circadianText}</p>
-              <div className="health-grid">
+
+              {/* Weather / location */}
+              {mindContext.loading && <p className="status-message">Refreshing context...</p>}
+              {mindContext.error && <p className="status-message error">{mindContext.error}</p>}
+              {weather ? (
+                <div className="context-box">
+                  <p>
+                    {weather.summary} · {Math.round(weather.temperatureC)}°C ·
+                    Sunrise {formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)} ·
+                    Sunset {formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}
+                  </p>
+                  <p>UV now {weather.uvNow ?? 'n/a'} · max {weather.uvMax ?? 'n/a'} · {weather.lightSuggestion}</p>
+                </div>
+              ) : (
+                !mindContext.loading && (
+                  <div className="location-prompt">
+                    <p className="muted-copy">Link location for weather, UV index, and sunrise data.</p>
+                    <button className="ghost small" onClick={syncLocationNow}>Link location</button>
+                    {locationStatus && <p className="status-message">{locationStatus}</p>}
+                  </div>
+                )
+              )}
+
+              {/* Health state */}
+              <div className="health-grid" style={{ marginTop: '0.75rem' }}>
                 {HEALTH_OPTIONS.map((option) => (
                   <button
                     key={option.key}
@@ -1044,13 +1215,31 @@ export default function App() {
                 ))}
               </div>
               <p className="recommendation">{recommendation}</p>
-              <div className="button-row">
+
+              {/* Writing mode recommendation */}
+              {(() => {
+                const modeName = getRecommendedWritingMode(activePhase.name, settings.healthState);
+                const mode = WRITING_MODES[modeName];
+                return (
+                  <div className="writing-mode-box">
+                    <span className="writing-mode-label">Writing mode</span>
+                    <div className="writing-mode-body">
+                      <strong className="writing-mode-name">{modeName}</strong>
+                      <span className="writing-mode-energy">{mode.energy} energy</span>
+                      <span className="writing-mode-counts">{mode.counts}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="button-row" style={{ marginTop: '0.75rem' }}>
                 <button className="secondary" onClick={suggestNextAction}>Suggest next action</button>
                 <button className="ghost" onClick={refreshContext}>Refresh context</button>
               </div>
               {mindAction && <p className="status-message">{mindAction}</p>}
             </section>
 
+            {/* Task flow card */}
             <section className="card flow-card">
               <div className="section-header">
                 <div>
@@ -1081,7 +1270,7 @@ export default function App() {
                         <strong>{task.title}</strong>
                         <span>
                           Step {index + 1}
-                          {task.minutes ? ` • ${task.minutes} min` : ' • Flexible timing'}
+                          {task.minutes ? ` · ${task.minutes} min` : ' · Flexible timing'}
                         </span>
                         {taskTimerActive && (
                           <div className="nested-timer">
@@ -1104,7 +1293,7 @@ export default function App() {
 
               <form className="add-task-form" onSubmit={addTask}>
                 <input type="text" placeholder="Add a task for this phase" value={taskTitleInput} onChange={(event) => setTaskTitleInput(event.target.value)} />
-                <input type="number" min="1" placeholder="Timer min" value={taskMinutesInput} onChange={(event) => setTaskMinutesInput(event.target.value)} />
+                <input type="number" placeholder="min (optional)" value={taskMinutesInput} onChange={(event) => setTaskMinutesInput(event.target.value)} />
                 <button type="submit">Add task</button>
               </form>
             </section>
