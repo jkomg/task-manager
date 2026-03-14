@@ -18,38 +18,40 @@ const HEALTH_OPTIONS = [
   },
 ];
 
-const STORAGE_KEY = 'focus-flow-state-v1';
-
-const defaultPhases = [
-  {
-    id: 'phase-1',
-    name: 'Morning',
-    defaultMinutes: 180,
-    tasks: [
-      { id: 'task-1', title: 'Wake-up routine', done: false, minutes: 15 },
-      { id: 'task-2', title: 'Review top 3 priorities', done: false, minutes: 10 },
-      { id: 'task-3', title: 'Deep work block', done: false, minutes: 45 },
-    ],
-  },
-  {
-    id: 'phase-2',
-    name: 'Afternoon',
-    defaultMinutes: 240,
-    tasks: [
-      { id: 'task-4', title: 'Admin cleanup', done: false, minutes: 20 },
-      { id: 'task-5', title: 'Errands or outreach', done: false, minutes: null },
-    ],
-  },
-  {
-    id: 'phase-3',
-    name: 'Evening',
-    defaultMinutes: 180,
-    tasks: [
-      { id: 'task-6', title: 'Reset space', done: false, minutes: 15 },
-      { id: 'task-7', title: 'Wind-down routine', done: false, minutes: 30 },
-    ],
-  },
-];
+const DEFAULT_SETTINGS = {
+  phases: [
+    {
+      id: 'phase-1',
+      name: 'Morning',
+      defaultMinutes: 180,
+      tasks: [
+        { id: 'task-1', title: 'Wake-up routine', done: false, minutes: 15 },
+        { id: 'task-2', title: 'Review top 3 priorities', done: false, minutes: 10 },
+        { id: 'task-3', title: 'Deep work block', done: false, minutes: 45 },
+      ],
+    },
+    {
+      id: 'phase-2',
+      name: 'Afternoon',
+      defaultMinutes: 240,
+      tasks: [
+        { id: 'task-4', title: 'Admin cleanup', done: false, minutes: 20 },
+        { id: 'task-5', title: 'Errands or outreach', done: false, minutes: null },
+      ],
+    },
+    {
+      id: 'phase-3',
+      name: 'Evening',
+      defaultMinutes: 180,
+      tasks: [
+        { id: 'task-6', title: 'Reset space', done: false, minutes: 15 },
+        { id: 'task-7', title: 'Wind-down routine', done: false, minutes: 30 },
+      ],
+    },
+  ],
+  activePhaseId: 'phase-1',
+  healthState: 'steady',
+};
 
 function formatSeconds(totalSeconds) {
   const clamped = Math.max(0, totalSeconds);
@@ -80,91 +82,189 @@ function moveItem(items, fromIndex, toIndex) {
   return next;
 }
 
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+    ...options,
+  });
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error ?? 'Request failed.');
+  }
+
+  return data;
+}
+
+function AuthScreen({ mode, form, onModeChange, onChange, onSubmit, authPending, authError }) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div>
+          <p className="eyebrow">Focus Flow</p>
+          <h1>Account-based local testing</h1>
+          <p className="lede">
+            Create an account so your phases, routines, and ADHD-friendly setup are saved in the local app database.
+          </p>
+        </div>
+
+        <div className="auth-toggle">
+          <button
+            className={mode === 'login' ? 'active-tab' : 'ghost'}
+            onClick={() => onModeChange('login')}
+            type="button"
+          >
+            Sign in
+          </button>
+          <button
+            className={mode === 'register' ? 'active-tab' : 'ghost'}
+            onClick={() => onModeChange('register')}
+            type="button"
+          >
+            Create account
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={onSubmit}>
+          {mode === 'register' && (
+            <label>
+              Name
+              <input
+                name="displayName"
+                value={form.displayName}
+                onChange={onChange}
+                placeholder="Alex"
+                autoComplete="name"
+              />
+            </label>
+          )}
+
+          <label>
+            Email
+            <input
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={onChange}
+              placeholder="alex@example.com"
+              autoComplete="email"
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={onChange}
+              placeholder="At least 8 characters"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            />
+          </label>
+
+          {authError && <p className="status-message error">{authError}</p>}
+
+          <button type="submit" disabled={authPending}>
+            {authPending ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
-  const [phases, setPhases] = useState(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return defaultPhases;
-    }
-
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed.phases) && parsed.phases.length > 0 ? parsed.phases : defaultPhases;
-    } catch {
-      return defaultPhases;
-    }
-  });
-  const [activePhaseId, setActivePhaseId] = useState(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return defaultPhases[0].id;
-    }
-
-    try {
-      return JSON.parse(saved).activePhaseId ?? defaultPhases[0].id;
-    } catch {
-      return defaultPhases[0].id;
-    }
-  });
-  const [phaseRemaining, setPhaseRemaining] = useState(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return defaultPhases[0].defaultMinutes * 60;
-    }
-
-    try {
-      return JSON.parse(saved).phaseRemaining ?? defaultPhases[0].defaultMinutes * 60;
-    } catch {
-      return defaultPhases[0].defaultMinutes * 60;
-    }
-  });
-  const [phaseDurationInput, setPhaseDurationInput] = useState(defaultPhases[0].defaultMinutes);
-  const [phaseRunning, setPhaseRunning] = useState(false);
-  const [healthState, setHealthState] = useState(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return 'steady';
-    }
-
-    try {
-      return JSON.parse(saved).healthState ?? 'steady';
-    } catch {
-      return 'steady';
-    }
-  });
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [authPending, setAuthPending] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [user, setUser] = useState(null);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [saveStatus, setSaveStatus] = useState('Not saved yet');
   const [taskTitleInput, setTaskTitleInput] = useState('');
   const [taskMinutesInput, setTaskMinutesInput] = useState('');
   const [phaseNameInput, setPhaseNameInput] = useState('');
   const [phaseDefaultMinutesInput, setPhaseDefaultMinutesInput] = useState('90');
+  const [phaseDurationInput, setPhaseDurationInput] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes);
+  const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
+  const [phaseRunning, setPhaseRunning] = useState(false);
   const [activeTaskTimerId, setActiveTaskTimerId] = useState(null);
   const [taskTimerRemaining, setTaskTimerRemaining] = useState(0);
+  const [authForm, setAuthForm] = useState({
+    displayName: '',
+    email: '',
+    password: '',
+  });
   const phaseIntervalRef = useRef(null);
   const taskIntervalRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
+  const loadedSettingsRef = useRef(false);
 
   const activePhase = useMemo(
-    () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
-    [activePhaseId, phases]
+    () => settings.phases.find((phase) => phase.id === settings.activePhaseId) ?? settings.phases[0],
+    [settings]
   );
 
+  const completionRatio = useMemo(() => {
+    const total = activePhase?.tasks.length ?? 0;
+    if (total === 0) {
+      return 0;
+    }
+
+    return activePhase.tasks.filter((task) => task.done).length / total;
+  }, [activePhase]);
+
+  const recommendation = HEALTH_OPTIONS.find((option) => option.key === settings.healthState)?.guidance;
+
   useEffect(() => {
+    let cancelled = false;
+
+    api('/api/auth/session')
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        setUser(data.user);
+        setSettings(data.settings);
+        setSaveStatus('All changes saved');
+        loadedSettingsRef.current = true;
+      })
+      .catch(() => {
+        if (!cancelled) {
+          loadedSettingsRef.current = false;
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuthChecked(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activePhase) {
+      return;
+    }
+
     setPhaseDurationInput(activePhase.defaultMinutes);
     setPhaseRemaining(activePhase.defaultMinutes * 60);
     setPhaseRunning(false);
     setActiveTaskTimerId(null);
     setTaskTimerRemaining(0);
-  }, [activePhaseId, activePhase.defaultMinutes]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        phases,
-        activePhaseId,
-        phaseRemaining,
-        healthState,
-      })
-    );
-  }, [activePhaseId, healthState, phaseRemaining, phases]);
+  }, [activePhase?.id, activePhase?.defaultMinutes]);
 
   useEffect(() => {
     if (!phaseRunning) {
@@ -204,22 +304,96 @@ export default function App() {
     return () => window.clearInterval(taskIntervalRef.current);
   }, [activeTaskTimerId]);
 
-  const completionRatio = useMemo(() => {
-    const total = activePhase.tasks.length;
-    if (total === 0) {
-      return 0;
+  useEffect(() => {
+    if (!user || !loadedSettingsRef.current) {
+      return undefined;
     }
-    const completed = activePhase.tasks.filter((task) => task.done).length;
-    return completed / total;
-  }, [activePhase.tasks]);
 
-  const recommendation = HEALTH_OPTIONS.find((option) => option.key === healthState)?.guidance;
+    window.clearTimeout(saveTimeoutRef.current);
+    setSaveStatus('Saving...');
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        await api('/api/settings', {
+          method: 'PUT',
+          body: JSON.stringify(settings),
+        });
+        setSaveStatus('All changes saved');
+      } catch (error) {
+        setSaveStatus(error.message);
+      }
+    }, 500);
+
+    return () => window.clearTimeout(saveTimeoutRef.current);
+  }, [settings, user]);
+
+  function setSettingsPatch(patch) {
+    setSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function updateActivePhase(patch) {
+    setSettings((current) => ({
+      ...current,
+      phases: current.phases.map((phase) =>
+        phase.id === current.activePhaseId ? { ...phase, ...patch } : phase
+      ),
+    }));
+  }
+
+  function updateTasks(updater) {
+    setSettings((current) => ({
+      ...current,
+      phases: current.phases.map((phase) =>
+        phase.id === current.activePhaseId ? { ...phase, tasks: updater(phase.tasks) } : phase
+      ),
+    }));
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    setAuthPending(true);
+    setAuthError('');
+
+    try {
+      const path = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const data = await api(path, {
+        method: 'POST',
+        body: JSON.stringify(authForm),
+      });
+
+      setUser(data.user);
+      setSettings(data.settings);
+      loadedSettingsRef.current = true;
+      setAuthChecked(true);
+      setAuthForm({ displayName: '', email: '', password: '' });
+      setSaveStatus('All changes saved');
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await api('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout cleanup failures and reset UI locally.
+    }
+
+    loadedSettingsRef.current = false;
+    setUser(null);
+    setSettings(DEFAULT_SETTINGS);
+    setAuthMode('login');
+    setAuthError('');
+    setSaveStatus('Signed out');
+  }
 
   function handleStartPhase() {
     const nextMinutes = Number(phaseDurationInput);
     if (!Number.isFinite(nextMinutes) || nextMinutes <= 0) {
       return;
     }
+
     setPhaseRemaining(nextMinutes * 60);
     setPhaseRunning(true);
   }
@@ -234,20 +408,6 @@ export default function App() {
     setPhaseDurationInput(activePhase.defaultMinutes);
   }
 
-  function updateActivePhase(patch) {
-    setPhases((currentPhases) =>
-      currentPhases.map((phase) => (phase.id === activePhase.id ? { ...phase, ...patch } : phase))
-    );
-  }
-
-  function updateTasks(updater) {
-    setPhases((currentPhases) =>
-      currentPhases.map((phase) =>
-        phase.id === activePhase.id ? { ...phase, tasks: updater(phase.tasks) } : phase
-      )
-    );
-  }
-
   function toggleTask(taskId) {
     updateTasks((tasks) =>
       tasks.map((task) => (task.id === taskId ? { ...task, done: !task.done } : task))
@@ -260,6 +420,7 @@ export default function App() {
     if (!title) {
       return;
     }
+
     const parsedMinutes = Number(taskMinutesInput);
     updateTasks((tasks) => [
       ...tasks,
@@ -284,8 +445,11 @@ export default function App() {
       tasks: [createTask('First step', 10)],
     };
 
-    setPhases((currentPhases) => [...currentPhases, nextPhase]);
-    setActivePhaseId(nextPhase.id);
+    setSettings((current) => ({
+      ...current,
+      phases: [...current.phases, nextPhase],
+      activePhaseId: nextPhase.id,
+    }));
     setPhaseRemaining(minutes * 60);
     setPhaseNameInput('');
     setPhaseDefaultMinutesInput('90');
@@ -297,6 +461,7 @@ export default function App() {
     if (index < 0 || nextIndex < 0 || nextIndex >= activePhase.tasks.length) {
       return;
     }
+
     updateTasks((tasks) => moveItem(tasks, index, nextIndex));
   }
 
@@ -304,6 +469,7 @@ export default function App() {
     if (!task.minutes) {
       return;
     }
+
     setActiveTaskTimerId(task.id);
     setTaskTimerRemaining(task.minutes * 60);
   }
@@ -313,6 +479,36 @@ export default function App() {
     setTaskTimerRemaining(0);
   }
 
+  if (!authChecked) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-card">
+          <p className="eyebrow">Focus Flow</p>
+          <h1>Loading your workspace</h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        mode={authMode}
+        form={authForm}
+        onModeChange={setAuthMode}
+        onChange={(event) =>
+          setAuthForm((current) => ({
+            ...current,
+            [event.target.name]: event.target.value,
+          }))
+        }
+        onSubmit={handleAuthSubmit}
+        authPending={authPending}
+        authError={authError}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -320,41 +516,48 @@ export default function App() {
           <p className="eyebrow">Focus Flow</p>
           <h1>ADHD-friendly day planning</h1>
           <p className="lede">
-            Break the day into flexible phases, start with a quick mind check, and use nested timers when a task needs tighter structure.
+            Signed in as {user.displayName}. Your phase setup is stored in the local app account and restored on refresh.
           </p>
         </div>
 
-          <div className="phase-list">
-            {phases.map((phase) => (
-              <button
+        <div className="card account-card">
+          <p className="card-label">Account</p>
+          <strong>{user.email}</strong>
+          <span className="muted-copy">{saveStatus}</span>
+          <button className="ghost" onClick={handleLogout}>Sign out</button>
+        </div>
+
+        <div className="phase-list">
+          {settings.phases.map((phase) => (
+            <button
               key={phase.id}
-              className={`phase-chip ${phase.id === activePhaseId ? 'active' : ''}`}
-                onClick={() => setActivePhaseId(phase.id)}
+              className={`phase-chip ${phase.id === settings.activePhaseId ? 'active' : ''}`}
+              onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
             >
               <span>{phase.name}</span>
               <small>{phase.defaultMinutes} min default</small>
             </button>
-            ))}
-          </div>
+          ))}
+        </div>
 
-          <form className="phase-form" onSubmit={addPhase}>
-            <input
-              type="text"
-              placeholder="New phase name"
-              value={phaseNameInput}
-              onChange={(event) => setPhaseNameInput(event.target.value)}
-            />
-            <input
-              type="number"
-              min="1"
-              placeholder="Default min"
-              value={phaseDefaultMinutesInput}
-              onChange={(event) => setPhaseDefaultMinutesInput(event.target.value)}
-            />
-            <button type="submit">Add phase</button>
-          </form>
+        <form className="phase-form" onSubmit={addPhase}>
+          <input
+            type="text"
+            placeholder="New phase name"
+            value={phaseNameInput}
+            onChange={(event) => setPhaseNameInput(event.target.value)}
+          />
+          <input
+            type="number"
+            min="1"
+            placeholder="Default min"
+            value={phaseDefaultMinutesInput}
+            onChange={(event) => setPhaseDefaultMinutesInput(event.target.value)}
+          />
+          <button type="submit">Add phase</button>
+        </form>
 
-          <div className="card accent-card">
+        <div className="card accent-card">
           <p className="card-label">Phase progress</p>
           <strong>{Math.round(completionRatio * 100)}% complete</strong>
           <div className="progress-track" aria-hidden="true">
@@ -383,6 +586,7 @@ export default function App() {
                 onChange={(event) => setPhaseDurationInput(event.target.value)}
               />
             </label>
+
             <label>
               Phase name
               <input
@@ -391,6 +595,7 @@ export default function App() {
                 onChange={(event) => updateActivePhase({ name: event.target.value })}
               />
             </label>
+
             <label>
               Default length for this phase
               <input
@@ -405,7 +610,8 @@ export default function App() {
                 }}
               />
             </label>
-            <div className="button-row">
+
+            <div className="button-row phase-action-row">
               <button onClick={handleStartPhase}>Start phase</button>
               <button className="secondary" onClick={handlePausePhase}>Pause</button>
               <button className="ghost" onClick={handleResetPhase}>Reset</button>
@@ -425,8 +631,8 @@ export default function App() {
             {HEALTH_OPTIONS.map((option) => (
               <button
                 key={option.key}
-                className={`health-option ${healthState === option.key ? 'selected' : ''}`}
-                onClick={() => setHealthState(option.key)}
+                className={`health-option ${settings.healthState === option.key ? 'selected' : ''}`}
+                onClick={() => setSettingsPatch({ healthState: option.key })}
               >
                 {option.label}
               </button>
@@ -454,6 +660,7 @@ export default function App() {
                     onClick={() => toggleTask(task.id)}
                     aria-label={task.done ? `Mark ${task.title} incomplete` : `Mark ${task.title} complete`}
                   />
+
                   <div className="task-copy">
                     <strong>{task.title}</strong>
                     <span>
@@ -467,6 +674,7 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
                   <div className="task-actions">
                     <button className="ghost small" onClick={() => moveTask(task.id, 'up')}>Up</button>
                     <button className="ghost small" onClick={() => moveTask(task.id, 'down')}>Down</button>
