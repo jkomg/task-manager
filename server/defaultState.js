@@ -1,0 +1,83 @@
+import crypto from 'node:crypto';
+
+export const HEALTH_OPTIONS = ['steady', 'scattered', 'drained'];
+
+export function buildDefaultState() {
+  return {
+    phases: [
+      {
+        id: 'phase-1',
+        name: 'Morning',
+        defaultMinutes: 180,
+        tasks: [
+          { id: 'task-1', title: 'Wake-up routine', done: false, minutes: 15 },
+          { id: 'task-2', title: 'Review top 3 priorities', done: false, minutes: 10 },
+          { id: 'task-3', title: 'Deep work block', done: false, minutes: 45 },
+        ],
+      },
+      {
+        id: 'phase-2',
+        name: 'Afternoon',
+        defaultMinutes: 240,
+        tasks: [
+          { id: 'task-4', title: 'Admin cleanup', done: false, minutes: 20 },
+          { id: 'task-5', title: 'Errands or outreach', done: false, minutes: null },
+        ],
+      },
+      {
+        id: 'phase-3',
+        name: 'Evening',
+        defaultMinutes: 180,
+        tasks: [
+          { id: 'task-6', title: 'Reset space', done: false, minutes: 15 },
+          { id: 'task-7', title: 'Wind-down routine', done: false, minutes: 30 },
+        ],
+      },
+    ],
+    activePhaseId: 'phase-1',
+    healthState: 'steady',
+  };
+}
+
+export function normalizeState(input) {
+  const fallback = buildDefaultState();
+
+  if (!input || typeof input !== 'object') {
+    return fallback;
+  }
+
+  const phases = Array.isArray(input.phases)
+    ? input.phases
+        .filter((phase) => phase && typeof phase === 'object')
+        .map((phase) => ({
+          id: String(phase.id ?? `phase-${crypto.randomUUID()}`),
+          name: String(phase.name ?? 'Untitled phase'),
+          defaultMinutes: Number.isFinite(Number(phase.defaultMinutes)) && Number(phase.defaultMinutes) > 0
+            ? Number(phase.defaultMinutes)
+            : 60,
+          tasks: Array.isArray(phase.tasks)
+            ? phase.tasks
+                .filter((task) => task && typeof task === 'object')
+                .map((task) => ({
+                  id: String(task.id ?? `task-${crypto.randomUUID()}`),
+                  title: String(task.title ?? 'Untitled task'),
+                  done: Boolean(task.done),
+                  minutes:
+                    Number.isFinite(Number(task.minutes)) && Number(task.minutes) > 0
+                      ? Number(task.minutes)
+                      : null,
+                }))
+            : [],
+        }))
+    : fallback.phases;
+
+  const firstPhaseId = phases[0]?.id ?? fallback.activePhaseId;
+
+  return {
+    phases: phases.length > 0 ? phases : fallback.phases,
+    activePhaseId: phases.some((phase) => phase.id === input.activePhaseId)
+      ? input.activePhaseId
+      : firstPhaseId,
+    healthState: HEALTH_OPTIONS.includes(input.healthState) ? input.healthState : fallback.healthState,
+  };
+}

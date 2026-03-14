@@ -9,7 +9,8 @@ Small local prototype for an ADHD-friendly task app.
 - Start a phase with a quick mind check and lightweight guidance.
 - Work through an ordered checklist for the active phase.
 - Start nested task timers inside a running phase.
-- Persist the current state in the browser for local testing.
+- Create local user accounts with email and password.
+- Persist each user's settings and routines in a local SQLite database.
 
 ## Local Run
 
@@ -21,12 +22,19 @@ docker compose up --build
 
 App URL: [http://localhost:3000](http://localhost:3000)
 
+API URL: `http://localhost:3001`
+
 ### Without Docker
 
 ```bash
 npm install
 npm run dev
 ```
+
+## Local Data
+
+- SQLite database path: `data/focus-flow.db`
+- Session state uses an HTTP-only cookie in the browser.
 
 ## Change Management
 
