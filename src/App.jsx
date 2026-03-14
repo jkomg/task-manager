@@ -827,6 +827,10 @@ export default function App() {
         <div className="card nav-note-card">
           <p className="card-label">Phase editing</p>
           <p className="muted-copy">Need a phase in the middle or a rename? Use Settings from the top-right menu.</p>
+          <div className="button-row">
+            <button className="ghost small" onClick={() => setSiteView('settings')}>Open settings</button>
+            <button className="ghost small" onClick={() => setSiteView('profile')}>Open profile</button>
+          </div>
         </div>
 
         <div className="card accent-card">
