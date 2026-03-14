@@ -234,17 +234,13 @@ app.get('/api/context/brief', requireAuth, async (req, res) => {
   const timeZone = String(req.query.timeZone ?? req.query.tz ?? persisted.preferences?.timeZone ?? 'UTC');
   const timeDetails = getTimeDetails(timeZone);
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return res.json({
-      timeZone,
-      ...timeDetails,
-      weather: null,
-    });
-  }
+  // Default to Fredericksburg, VA when no location provided
+  const effectiveLat = Number.isFinite(latitude) ? latitude : 38.3032;
+  const effectiveLon = Number.isFinite(longitude) ? longitude : -77.4605;
 
   const query = new URLSearchParams({
-    latitude: String(latitude),
-    longitude: String(longitude),
+    latitude: String(effectiveLat),
+    longitude: String(effectiveLon),
     timezone: timeZone,
     current: 'temperature_2m,weather_code,uv_index,is_day',
     daily: 'sunrise,sunset,uv_index_max',

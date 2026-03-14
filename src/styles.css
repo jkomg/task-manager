@@ -450,12 +450,9 @@ h3 {
   background: linear-gradient(90deg, #7ea6ba, #98b9a8);
 }
 
-.hero-topline,
-.section-header,
 .task-row,
 .button-row,
 .task-actions,
-.nested-timer,
 .health-grid {
   display: flex;
   align-items: center;
@@ -463,10 +460,9 @@ h3 {
   flex-wrap: wrap;
 }
 
-.hero-topline,
-.section-header,
 .task-row {
   justify-content: space-between;
+  align-items: flex-start;
 }
 
 .timer-pill {
@@ -590,39 +586,322 @@ h3 {
   opacity: 0.64;
 }
 
+.task-row.editing {
+  background: rgba(255, 255, 255, 0.92);
+  align-items: stretch;
+}
+
+.task-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  width: 100%;
+  align-items: center;
+}
+
+.task-edit-form input[type="text"] {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.task-edit-form input[type="number"] {
+  width: 6rem;
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
+/* Task check — large, square, obvious */
 .task-check {
-  width: 1.1rem;
-  height: 1.1rem;
-  margin-top: 0.22rem;
-  border-radius: 999px;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 6px;
   padding: 0;
-  background: rgba(47, 79, 95, 0.2);
+  background: rgba(255,255,255,0.9);
+  border: 2px solid rgba(79, 126, 149, 0.4);
+  position: relative;
+  transition: background 120ms, border-color 120ms;
+}
+
+.task-check:hover {
+  border-color: var(--primary);
+  background: rgba(79, 126, 149, 0.08);
+  transform: none;
 }
 
 .task-check.checked {
   background: var(--secondary);
+  border-color: var(--secondary-strong);
+}
+
+.task-check.checked::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  padding-top: 1px;
 }
 
 .task-copy {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
-.task-copy span {
-  display: block;
+.task-title {
+  font-size: 0.93rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.task-duration {
+  font-size: 0.76rem;
   color: var(--muted);
-  margin-top: 0.12rem;
 }
 
-.nested-timer {
-  margin-top: 0.48rem;
+.task-timer-running {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary-strong);
+  letter-spacing: 0.04em;
 }
 
-.add-task-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+/* Timer button on task row */
+.task-timer-btn {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--ghost);
+  color: var(--primary-strong);
+  border: 1px solid rgba(79, 126, 149, 0.3);
+  white-space: nowrap;
+}
+
+.task-timer-btn.active {
+  background: rgba(107, 156, 159, 0.2);
+  border-color: var(--secondary);
+  color: var(--secondary-strong);
+}
+
+/* Day plan */
+.day-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Phase sections */
+.phase-section {
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.6);
+  overflow: hidden;
+}
+
+.phase-section.active {
+  background: rgba(255,255,255,0.88);
+  border-color: rgba(79, 126, 149, 0.35);
+  box-shadow: 0 2px 12px rgba(79, 126, 149, 0.08);
+}
+
+.phase-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  cursor: default;
+}
+
+.phase-section:not(.active) .phase-section-header {
+  cursor: pointer;
+}
+
+.phase-section:not(.active) .phase-section-header:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+.phase-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.active-dot {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--secondary);
+  flex-shrink: 0;
+}
+
+.phase-header-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.phase-header-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.phase-header-right {
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
-  margin-top: 0.85rem;
+  flex-shrink: 0;
+}
+
+.phase-task-count {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.phase-timer-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.phase-timer-display {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--primary-strong);
+  letter-spacing: 0.04em;
+  min-width: 4rem;
+}
+
+/* Task list within phase */
+.phase-section .task-list {
+  padding: 0 0.75rem;
+  margin-top: 0;
+}
+
+.phase-section .task-row {
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.7rem 0.25rem;
+}
+
+.phase-section.active .task-row {
+  border-top-color: rgba(79, 126, 149, 0.12);
+}
+
+/* Quick add */
+.quick-add-form {
+  padding: 0.5rem 1rem 0.75rem;
+}
+
+.quick-add-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed rgba(79, 126, 149, 0.3);
+  border-radius: 0;
+  padding: 0.4rem 0.1rem;
+  font-size: 0.88rem;
+  color: var(--ink);
+  outline: none;
+}
+
+.quick-add-input::placeholder {
+  color: var(--muted);
+}
+
+.quick-add-input:focus {
+  border-bottom-color: var(--primary);
+}
+
+.phase-section .suggestion-strip {
+  padding: 0 1rem 0.5rem;
+  margin-top: 0;
+}
+
+.suggest-btn {
+  margin: 0.1rem 1rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+/* Context strip */
+.context-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 1rem;
+}
+
+.context-strip-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.context-greeting {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.context-weather-inline {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.context-strip-circadian {
+  font-size: 0.82rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.context-light-tip {
+  color: var(--primary-strong);
+  font-weight: 500;
+}
+
+/* Check-in card */
+.check-in-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.check-in-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.check-in-prompt {
+  font-size: 0.9rem;
+  color: var(--ink);
+  margin: 0;
+}
+
+/* Phase map: remove grid-column override since we're now single column */
+.phase-map-card {
+  display: flex;
+  overflow-x: auto;
+  gap: 0;
+  padding: 0.5rem;
 }
 
 /* Phase time map strip */
@@ -631,7 +910,6 @@ h3 {
   overflow-x: auto;
   gap: 0;
   padding: 0.5rem;
-  grid-column: 1 / -1;
 }
 
 .phase-map-segment {
@@ -825,6 +1103,88 @@ h3 {
   gap: 0.45rem;
 }
 
+/* Mind Check card */
+.mind-check-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mind-check-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+/* Circadian window panel */
+.circadian-panel {
+  background: linear-gradient(135deg, rgba(79, 126, 149, 0.08) 0%, rgba(107, 156, 159, 0.06) 100%);
+  border: 1px solid rgba(79, 126, 149, 0.18);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.circadian-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: var(--primary-strong);
+  margin: 0;
+}
+
+.circadian-body {
+  font-size: 0.875rem;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.circadian-tip {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.circadian-light {
+  color: var(--primary-strong);
+}
+
+/* Weather strip */
+.weather-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.85rem;
+  align-items: baseline;
+  padding: 0.55rem 0.72rem;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.weather-main {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.weather-sun {
+  color: var(--muted);
+}
+
+.weather-uv {
+  color: var(--muted);
+  font-size: 0.78rem;
+  width: 100%;
+}
+
 /* Writing mode recommendation */
 .writing-mode-box {
   margin-top: 0.72rem;
@@ -912,7 +1272,7 @@ h3 {
     height: fit-content;
   }
 
-  .main-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .main-stack {
+    max-width: 760px;
   }
 }
