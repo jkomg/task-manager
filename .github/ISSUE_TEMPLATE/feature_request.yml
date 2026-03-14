@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest a new capability or UX improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user problem or friction should this feature address?
+      placeholder: Users need a way to save reusable routines for each phase instead of rebuilding them every day.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature as simply as possible.
+      placeholder: Add reusable routine templates that can be applied to a phase with one click.
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_flow
+    attributes:
+      label: User flow
+      description: What should the user do before, during, and after this feature?
+      placeholder: User creates a Morning template once, then applies it at the start of a day.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What should be true when this feature is done?
+      placeholder: |
+        - User can save a named template
+        - User can apply a template to a phase
+        - Existing tasks are preserved or intentionally replaced
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Phase planning
+        - Task flow
+        - Timers
+        - ADHD support
+        - Data and persistence
+        - Visual design
+        - Dev tooling
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Mockups, examples, or related references.

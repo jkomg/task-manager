@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Product notes
+    url: https://github.com/jkomg/task-manager#readme
+    about: Check the README for the current prototype scope before filing a new issue.

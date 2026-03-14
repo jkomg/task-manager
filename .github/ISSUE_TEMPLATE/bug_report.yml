@@ -1,0 +1,67 @@
+name: Bug report
+description: Report something broken or confusing in the app.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is going wrong?
+      placeholder: The phase timer resets when I switch phases.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Open the app
+        2. Start Morning phase
+        3. Start a task timer
+        4. Switch to Afternoon
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The current phase timer should pause and preserve state.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: The timer resets and the nested timer disappears.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where did this happen?
+      options:
+        - Docker local run
+        - Local npm run dev
+        - Production build preview
+    validations:
+      required: true
+
+  - type: textarea
+    id: adh_context
+    attributes:
+      label: ADHD workflow context
+      description: If relevant, explain what you were trying to do in your planning flow.
+      placeholder: I was switching phases quickly because I got interrupted and wanted to resume later.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Screenshots, browser details, or anything else useful.
