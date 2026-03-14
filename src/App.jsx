@@ -1165,11 +1165,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="sidebar-footer">
-          <div className="progress-track" aria-label={`${Math.round(completionRatio * 100)}% of phase tasks complete`}>
-            <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
-          </div>
-        </div>
       </aside>
 
       <main className="main-stack">
