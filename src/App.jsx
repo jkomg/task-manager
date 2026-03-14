@@ -247,8 +247,6 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [taskTitleInput, setTaskTitleInput] = useState('');
   const [taskMinutesInput, setTaskMinutesInput] = useState('');
-  const [phaseNameInput, setPhaseNameInput] = useState('');
-  const [phaseDefaultMinutesInput, setPhaseDefaultMinutesInput] = useState('90');
   const [phaseDurationInput, setPhaseDurationInput] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes);
   const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
   const [phaseRunning, setPhaseRunning] = useState(false);
@@ -590,27 +588,25 @@ export default function App() {
     setTaskMinutesInput('');
   }
 
-  function addPhase(event) {
-    event.preventDefault();
-    const name = phaseNameInput.trim();
-    const minutes = Number(phaseDefaultMinutesInput);
-    if (!name || !Number.isFinite(minutes) || minutes <= 0) {
-      return;
-    }
-    const nextPhase = {
-      id: `phase-${crypto.randomUUID()}`,
-      name,
-      defaultMinutes: minutes,
-      tasks: [createTask('First step', 10)],
-    };
-    setSettings((current) => ({
-      ...current,
-      phases: [...current.phases, nextPhase],
-      activePhaseId: nextPhase.id,
-    }));
-    setPhaseRemaining(minutes * 60);
-    setPhaseNameInput('');
-    setPhaseDefaultMinutesInput('90');
+  function insertPhaseAt(index) {
+    setSettings((current) => {
+      const safeIndex = Math.max(0, Math.min(index, current.phases.length));
+      const nextNumber = current.phases.length + 1;
+      const nextPhase = {
+        id: `phase-${crypto.randomUUID()}`,
+        name: `Phase ${nextNumber}`,
+        defaultMinutes: 90,
+        tasks: [createTask('First step', 10)],
+      };
+      const phases = [...current.phases];
+      phases.splice(safeIndex, 0, nextPhase);
+      return {
+        ...current,
+        phases,
+        activePhaseId: nextPhase.id,
+      };
+    });
+    setSiteView('settings');
   }
 
   function moveTask(taskId, direction) {
@@ -666,6 +662,15 @@ export default function App() {
       ...current,
       phases: current.phases.map((phase) =>
         phase.id === phaseId ? { ...phase, defaultMinutes: minutes } : phase
+      ),
+    }));
+  }
+
+  function updatePhaseName(phaseId, nextName) {
+    setSettings((current) => ({
+      ...current,
+      phases: current.phases.map((phase) =>
+        phase.id === phaseId ? { ...phase, name: nextName } : phase
       ),
     }));
   }
@@ -819,22 +824,10 @@ export default function App() {
           ))}
         </div>
 
-        <form className="phase-form" onSubmit={addPhase}>
-          <input
-            type="text"
-            placeholder="New phase name"
-            value={phaseNameInput}
-            onChange={(event) => setPhaseNameInput(event.target.value)}
-          />
-          <input
-            type="number"
-            min="1"
-            placeholder="Default min"
-            value={phaseDefaultMinutesInput}
-            onChange={(event) => setPhaseDefaultMinutesInput(event.target.value)}
-          />
-          <button type="submit">Add phase</button>
-        </form>
+        <div className="card nav-note-card">
+          <p className="card-label">Phase editing</p>
+          <p className="muted-copy">Need a phase in the middle or a rename? Use Settings from the top-right menu.</p>
+        </div>
 
         <div className="card accent-card">
           <p className="card-label">Phase progress</p>
@@ -899,20 +892,44 @@ export default function App() {
             <p className="card-label">Settings</p>
             <h3>Default phase durations</h3>
             <p className="muted-copy">
-              These defaults apply whenever you reset or start each phase.
+              Insert phases anywhere, rename them, and update duration defaults.
             </p>
-            <div className="setup-grid">
-              {settings.phases.map((phase) => (
-                <label key={phase.id}>
-                  {phase.name}
-                  <input
-                    type="number"
-                    min="1"
-                    value={phase.defaultMinutes}
-                    onChange={(event) => updatePhaseDefault(phase.id, event.target.value)}
-                  />
-                </label>
+            <div className="settings-phase-list">
+              {settings.phases.map((phase, index) => (
+                <div className="settings-phase-block" key={phase.id}>
+                  <button className="ghost small insert-btn" onClick={() => insertPhaseAt(index)}>
+                    + Insert phase above
+                  </button>
+                  <div className="settings-phase-row">
+                    <label>
+                      Phase name
+                      <input
+                        type="text"
+                        value={phase.name}
+                        onChange={(event) => updatePhaseName(phase.id, event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Default duration (min)
+                      <input
+                        type="number"
+                        min="1"
+                        value={phase.defaultMinutes}
+                        onChange={(event) => updatePhaseDefault(phase.id, event.target.value)}
+                      />
+                    </label>
+                    <button
+                      className="ghost small"
+                      onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
+                    >
+                      Make active
+                    </button>
+                  </div>
+                </div>
               ))}
+              <button className="secondary" onClick={() => insertPhaseAt(settings.phases.length)}>
+                + Add phase at end
+              </button>
             </div>
             <h3>Mind Check context</h3>
             <p className="muted-copy">Timezone: {settings.preferences?.timeZone || 'UTC'}</p>
