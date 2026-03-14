@@ -22,6 +22,8 @@ docker compose up --build
 
 App URL: [http://localhost:3000](http://localhost:3000)
 
+LAN test URL: [http://192.168.1.115:3000](http://192.168.1.115:3000)
+
 API URL: `http://localhost:3001`
 
 ### Without Docker
