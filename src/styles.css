@@ -102,6 +102,12 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.main-stack {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
 .card {
   background: var(--card);
   backdrop-filter: blur(12px);
@@ -114,6 +120,14 @@ button:disabled {
 .hero-card,
 .flow-card {
   grid-column: 1 / -1;
+}
+
+.topbar-card {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
 }
 
 .eyebrow,
@@ -153,6 +167,21 @@ button:disabled {
 
 .phase-chip small {
   color: var(--muted);
+}
+
+.setup-card h3 {
+  margin: 0;
+}
+
+.setup-grid {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 14px;
+}
+
+.setup-grid label {
+  display: grid;
+  gap: 8px;
 }
 
 .accent-card {
@@ -217,7 +246,7 @@ button:disabled {
 
 .phase-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 24px;
 }
@@ -236,6 +265,39 @@ button:disabled {
 
 .phase-form {
   grid-template-columns: 1fr 130px auto;
+}
+
+.profile-menu-wrap {
+  position: relative;
+}
+
+.profile-trigger {
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  padding: 0;
+  font-weight: 700;
+  background: linear-gradient(135deg, #2c8c72, #1f6b57);
+}
+
+.profile-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  min-width: 190px;
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 252, 246, 0.98);
+  box-shadow: 0 14px 30px rgba(36, 44, 38, 0.14);
+  display: grid;
+  gap: 6px;
+  z-index: 5;
+}
+
+.menu-item {
+  width: 100%;
+  text-align: left;
 }
 
 input {
@@ -310,6 +372,23 @@ button.small {
   max-width: 56ch;
 }
 
+.context-box {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(33, 53, 43, 0.1);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.context-box p {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+
+.context-box p:last-child {
+  margin-bottom: 0;
+}
+
 .task-list {
   display: grid;
   gap: 14px;
@@ -369,5 +448,14 @@ button.small {
 
   .sidebar {
     order: 2;
+  }
+
+  .topbar-card {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .phase-form {
+    grid-template-columns: 1fr;
   }
 }
