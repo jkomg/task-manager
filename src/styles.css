@@ -138,9 +138,9 @@ button.small {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.88rem;
+  display: block;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 0.75rem;
 }
 
@@ -1329,28 +1329,9 @@ h3 {
   padding-right: 0.15rem;
 }
 
-/* Mobile base: sidebar goes to horizontal strip */
-.sidebar {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.4rem 0.25rem;
-}
-
-.sidebar-footer {
-  flex: 1;
-  max-width: 8rem;
-}
-
-.sidebar-identity {
-  flex-shrink: 0;
-}
-
 @media (min-width: 700px) {
   .app-shell {
-    padding: 1rem;
+    padding: 1rem 1.5rem;
   }
 
   .phase-controls {
@@ -1369,26 +1350,8 @@ h3 {
 
 @media (min-width: 1080px) {
   .app-shell {
-    grid-template-columns: minmax(17.5rem, 21rem) minmax(0, 720px);
-    gap: 1rem;
-    padding: 1rem 1rem 1.2rem;
-    max-width: 1120px;
-    margin: 0 auto;
-  }
-
-  .sidebar {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
-    align-content: start;
-    position: sticky;
-    top: 0.8rem;
-    height: fit-content;
-    padding: 0;
-  }
-
-  .sidebar-footer {
-    max-width: none;
+    padding: 1.25rem 2rem 1.5rem;
+    max-width: 800px;
   }
 }
 

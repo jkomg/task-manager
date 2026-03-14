@@ -1152,21 +1152,6 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-identity">
-          <span className="sidebar-app-name">Focus Flow</span>
-          <div className="sidebar-user">
-            <span>{firstName(user.displayName)}</span>
-            <span
-              className={`save-dot ${saveStatus === 'Saving...' ? 'saving' : saveStatus.startsWith('All') ? 'saved' : 'error'}`}
-              title={saveStatus}
-              aria-label={saveStatus}
-            />
-          </div>
-        </div>
-
-      </aside>
-
       <main className="main-stack">
         <header className="card topbar-card">
           {siteView !== 'planner' ? (
@@ -1184,6 +1169,11 @@ export default function App() {
                 Back
               </button>
             )}
+            <span
+              className={`save-dot ${saveStatus === 'Saving...' ? 'saving' : saveStatus.startsWith('All') ? 'saved' : 'error'}`}
+              title={saveStatus}
+              aria-label={saveStatus}
+            />
             <div className="profile-menu-wrap" ref={menuRef}>
               <button className="profile-trigger" onClick={() => setMenuOpen((current) => !current)}>
                 {firstName(user.displayName).slice(0, 1).toUpperCase()}
