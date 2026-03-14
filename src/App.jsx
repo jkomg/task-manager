@@ -1,22 +1,67 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import calmBanner from './assets/calm-banner.svg';
 
 const HEALTH_OPTIONS = [
-  {
-    key: 'steady',
-    label: 'Steady',
-    guidance: 'Keep your current sequence and start with one quick win.',
-  },
-  {
-    key: 'scattered',
-    label: 'Scattered',
-    guidance: 'Shrink scope to your top three tasks and use shorter timed blocks.',
-  },
-  {
-    key: 'drained',
-    label: 'Drained',
-    guidance: 'Lean on low-friction tasks, hydrate, and reduce decision load.',
-  },
+  { key: 'steady', label: 'Steady', guidance: 'Keep momentum with one clear next step and low friction.' },
+  { key: 'scattered', label: 'Scattered', guidance: 'Shrink scope and use shorter timed blocks with visible boundaries.' },
+  { key: 'drained', label: 'Drained', guidance: 'Choose lighter tasks, reduce transitions, and protect recovery.' },
 ];
+
+const ROUTINE_OPTIONS = [
+  { key: 'session', label: 'Session Day', note: 'Full rhythm with generative work and structured recovery blocks.' },
+  { key: 'integration', label: 'Integration Day', note: 'Lighter rhythm for regulation, review, and maintenance.' },
+];
+
+const TASK_LIBRARY = {
+  session: {
+    morning: [
+      { title: 'Body scan + jaw check', minutes: 3 },
+      { title: 'Phase 1 input reading', minutes: 25 },
+      { title: 'Capture ideas in notebook', minutes: 10 },
+      { title: 'Spanish primer', minutes: 20 },
+    ],
+    afternoon: [
+      { title: 'Deep writing block (Draft or Revise)', minutes: 50 },
+      { title: 'Admin and logistics sweep', minutes: 20 },
+      { title: 'Rehab movement set', minutes: 30 },
+      { title: 'Reading as writer', minutes: 25 },
+    ],
+    evening: [
+      { title: 'System review and tomorrow setup', minutes: 15 },
+      { title: 'Low-stakes study or reading', minutes: 25 },
+      { title: 'Wind-down routine', minutes: 30 },
+    ],
+    custom: [
+      { title: 'Define one clear outcome for this phase', minutes: 10 },
+      { title: 'Focused block', minutes: 30 },
+      { title: 'Reset and transition', minutes: 10 },
+    ],
+  },
+  integration: {
+    morning: [
+      { title: 'Morning regulation block', minutes: 15 },
+      { title: 'Gentle reading / input', minutes: 20 },
+      { title: 'Capture one sentence', minutes: 5 },
+      { title: 'Spanish light touch', minutes: 15 },
+    ],
+    afternoon: [
+      { title: 'Compost existing notes', minutes: 20 },
+      { title: 'Lower-load writing touch', minutes: 25 },
+      { title: 'Toe lifts / textured surface', minutes: 10 },
+      { title: 'Restorative break', minutes: 15 },
+    ],
+    evening: [
+      { title: 'Flare protocol check-in', minutes: 10 },
+      { title: 'Light planning for next day', minutes: 10 },
+      { title: 'Wind-down and settle', minutes: 25 },
+    ],
+    custom: [
+      { title: 'Reduce scope to one meaningful action', minutes: 10 },
+      { title: 'Easy maintenance task', minutes: 20 },
+      { title: 'Recovery break', minutes: 10 },
+    ],
+  },
+};
 
 const DEFAULT_SETTINGS = {
   phases: [
@@ -25,18 +70,17 @@ const DEFAULT_SETTINGS = {
       name: 'Morning',
       defaultMinutes: 180,
       tasks: [
-        { id: 'task-1', title: 'Wake-up routine', done: false, minutes: 15 },
-        { id: 'task-2', title: 'Review top 3 priorities', done: false, minutes: 10 },
-        { id: 'task-3', title: 'Deep work block', done: false, minutes: 45 },
+        { id: 'task-1', title: 'Body scan + quiet input block', done: false, minutes: 25 },
+        { id: 'task-2', title: 'Capture and organize priorities', done: false, minutes: 10 },
       ],
     },
     {
       id: 'phase-2',
       name: 'Afternoon',
-      defaultMinutes: 240,
+      defaultMinutes: 180,
       tasks: [
-        { id: 'task-4', title: 'Admin cleanup', done: false, minutes: 20 },
-        { id: 'task-5', title: 'Errands or outreach', done: false, minutes: null },
+        { id: 'task-3', title: 'Deep work / writing block', done: false, minutes: 50 },
+        { id: 'task-4', title: 'Admin and recovery transitions', done: false, minutes: 20 },
       ],
     },
     {
@@ -44,13 +88,14 @@ const DEFAULT_SETTINGS = {
       name: 'Evening',
       defaultMinutes: 180,
       tasks: [
-        { id: 'task-6', title: 'Reset space', done: false, minutes: 15 },
-        { id: 'task-7', title: 'Wind-down routine', done: false, minutes: 30 },
+        { id: 'task-5', title: 'System review and reset', done: false, minutes: 15 },
+        { id: 'task-6', title: 'Wind-down routine', done: false, minutes: 30 },
       ],
     },
   ],
   activePhaseId: 'phase-1',
   healthState: 'steady',
+  routineType: 'session',
   preferences: {
     setupComplete: false,
     timeZone: 'UTC',
@@ -89,6 +134,26 @@ function firstName(displayName) {
   return String(displayName ?? '').trim().split(/\s+/)[0] || 'there';
 }
 
+function getPhaseKey(name) {
+  const normalized = String(name || '').toLowerCase();
+  if (normalized.includes('morning')) {
+    return 'morning';
+  }
+  if (normalized.includes('afternoon') || normalized.includes('midday')) {
+    return 'afternoon';
+  }
+  if (normalized.includes('evening') || normalized.includes('night')) {
+    return 'evening';
+  }
+  return 'custom';
+}
+
+function getSuggestions(routineType, phaseName) {
+  const key = getPhaseKey(phaseName);
+  const type = routineType === 'integration' ? 'integration' : 'session';
+  return TASK_LIBRARY[type][key] ?? TASK_LIBRARY[type].custom;
+}
+
 function formatClockFromIso(iso, timeZone) {
   if (!iso) {
     return 'n/a';
@@ -107,33 +172,30 @@ function formatClockFromIso(iso, timeZone) {
 
 function cognitionTip(period, healthState) {
   const base = {
-    morning:
-      'Morning is usually best for initiation, planning, and high-focus work in ADHD when possible.',
-    afternoon:
-      'Afternoon often benefits from structure and external cues. Use timers and clear task boundaries.',
-    evening:
-      'Evening is often better for review, reset, and lower-friction tasks over heavy cognitive load.',
-  }[period] ?? 'Use smaller steps and clear cues to protect momentum.';
+    morning: 'Morning is best for planning and initiation. Keep early wins small and clear.',
+    afternoon: 'Afternoon often benefits from structure. Use visible task boundaries and timed focus blocks.',
+    evening: 'Evening works best for review, consolidation, and low-friction tasks.',
+  }[period] ?? 'Use smaller steps and external cues to protect momentum.';
 
   if (healthState === 'scattered') {
-    return `${base} If attention is fragmented, keep your next step under 10 minutes.`;
+    return `${base} For scattered attention, cap each step to 10 minutes.`;
   }
   if (healthState === 'drained') {
-    return `${base} If energy is low, choose maintenance tasks and lower transition costs.`;
+    return `${base} If energy is low, prioritize maintenance over expansion.`;
   }
   return base;
 }
 
 function greetingFor(period, phaseName, name) {
-  const map = {
+  if (String(phaseName).toLowerCase().includes('morning')) {
+    return `Good morning, ${name}.`;
+  }
+  const byPeriod = {
     morning: `Good morning, ${name}.`,
     afternoon: `Good afternoon, ${name}.`,
     evening: `Good evening, ${name}.`,
   };
-  if (String(phaseName).toLowerCase().includes('morning')) {
-    return `Good morning, ${name}.`;
-  }
-  return map[period] ?? `Hi ${name}.`;
+  return byPeriod[period] ?? `Hi ${name}.`;
 }
 
 async function api(path, options = {}) {
@@ -163,25 +225,17 @@ function AuthScreen({ mode, form, onModeChange, onChange, onSubmit, authPending,
       <section className="auth-card">
         <div>
           <p className="eyebrow">Focus Flow</p>
-          <h1>Account-based local testing</h1>
+          <h1>Sign in to your rhythm</h1>
           <p className="lede">
-            Create an account so your phases, routines, and setup are saved in the local app database.
+            Your phase setup, routines, and mind-check context are saved to your local account.
           </p>
         </div>
 
         <div className="auth-toggle">
-          <button
-            className={mode === 'login' ? 'active-tab' : 'ghost'}
-            onClick={() => onModeChange('login')}
-            type="button"
-          >
+          <button className={mode === 'login' ? 'active-tab' : 'ghost'} onClick={() => onModeChange('login')} type="button">
             Sign in
           </button>
-          <button
-            className={mode === 'register' ? 'active-tab' : 'ghost'}
-            onClick={() => onModeChange('register')}
-            type="button"
-          >
+          <button className={mode === 'register' ? 'active-tab' : 'ghost'} onClick={() => onModeChange('register')} type="button">
             Create account
           </button>
         </div>
@@ -190,28 +244,13 @@ function AuthScreen({ mode, form, onModeChange, onChange, onSubmit, authPending,
           {mode === 'register' && (
             <label>
               Name
-              <input
-                name="displayName"
-                value={form.displayName}
-                onChange={onChange}
-                placeholder="Alex"
-                autoComplete="name"
-              />
+              <input name="displayName" value={form.displayName} onChange={onChange} placeholder="Alex" autoComplete="name" />
             </label>
           )}
-
           <label>
             Email
-            <input
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={onChange}
-              placeholder="alex@example.com"
-              autoComplete="email"
-            />
+            <input name="email" type="email" value={form.email} onChange={onChange} placeholder="alex@example.com" autoComplete="email" />
           </label>
-
           <label>
             Password
             <input
@@ -223,9 +262,7 @@ function AuthScreen({ mode, form, onModeChange, onChange, onSubmit, authPending,
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
           </label>
-
           {authError && <p className="status-message error">{authError}</p>}
-
           <button type="submit" disabled={authPending}>
             {authPending ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
@@ -282,6 +319,10 @@ export default function App() {
   }, [activePhase]);
 
   const recommendation = HEALTH_OPTIONS.find((option) => option.key === settings.healthState)?.guidance;
+  const activeSuggestions = useMemo(
+    () => getSuggestions(settings.routineType, activePhase?.name),
+    [settings.routineType, activePhase?.name]
+  );
 
   useEffect(() => {
     function onDocumentClick(event) {
@@ -501,16 +542,6 @@ export default function App() {
     }));
   }
 
-  function setPreferencesPatch(patch) {
-    setSettings((current) => ({
-      ...current,
-      preferences: {
-        ...(current.preferences ?? {}),
-        ...patch,
-      },
-    }));
-  }
-
   async function handleAuthSubmit(event) {
     event.preventDefault();
     setAuthPending(true);
@@ -538,7 +569,7 @@ export default function App() {
     try {
       await api('/api/auth/logout', { method: 'POST' });
     } catch {
-      // no-op
+      // ignore
     }
     loadedSettingsRef.current = false;
     setUser(null);
@@ -580,12 +611,24 @@ export default function App() {
       return;
     }
     const parsedMinutes = Number(taskMinutesInput);
-    updateTasks((tasks) => [
-      ...tasks,
-      createTask(title, Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null),
-    ]);
+    updateTasks((tasks) => [...tasks, createTask(title, Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null)]);
     setTaskTitleInput('');
     setTaskMinutesInput('');
+  }
+
+  function addSuggestionTask(suggestion) {
+    updateTasks((tasks) => [...tasks, createTask(suggestion.title, suggestion.minutes ?? null)]);
+  }
+
+  function applyRoutineTemplate(nextType) {
+    setSettings((current) => ({
+      ...current,
+      routineType: nextType,
+      phases: current.phases.map((phase) => ({
+        ...phase,
+        tasks: getSuggestions(nextType, phase.name).slice(0, 4).map((task) => createTask(task.title, task.minutes)),
+      })),
+    }));
   }
 
   function insertPhaseAt(index) {
@@ -596,7 +639,7 @@ export default function App() {
         id: `phase-${crypto.randomUUID()}`,
         name: `Phase ${nextNumber}`,
         defaultMinutes: 90,
-        tasks: [createTask('First step', 10)],
+        tasks: getSuggestions(current.routineType, 'custom').map((task) => createTask(task.title, task.minutes)),
       };
       const phases = [...current.phases];
       phases.splice(safeIndex, 0, nextPhase);
@@ -636,11 +679,9 @@ export default function App() {
       const minutes = Number(setupDraft[phase.id]);
       return {
         ...phase,
-        defaultMinutes:
-          Number.isFinite(minutes) && minutes > 0 ? minutes : phase.defaultMinutes,
+        defaultMinutes: Number.isFinite(minutes) && minutes > 0 ? minutes : phase.defaultMinutes,
       };
     });
-
     setSettings((current) => ({
       ...current,
       phases: normalized,
@@ -660,37 +701,25 @@ export default function App() {
     }
     setSettings((current) => ({
       ...current,
-      phases: current.phases.map((phase) =>
-        phase.id === phaseId ? { ...phase, defaultMinutes: minutes } : phase
-      ),
+      phases: current.phases.map((phase) => (phase.id === phaseId ? { ...phase, defaultMinutes: minutes } : phase)),
     }));
   }
 
   function updatePhaseName(phaseId, nextName) {
     setSettings((current) => ({
       ...current,
-      phases: current.phases.map((phase) =>
-        phase.id === phaseId ? { ...phase, name: nextName } : phase
-      ),
+      phases: current.phases.map((phase) => (phase.id === phaseId ? { ...phase, name: nextName } : phase)),
     }));
   }
 
   function suggestNextAction() {
     const nextTask = activePhase.tasks.find((task) => !task.done);
     if (!nextTask) {
-      setMindAction('You are done with this phase. Take a short reset before moving on.');
+      setMindAction('This phase is complete. Take a short reset before switching context.');
       return;
     }
-
-    const durationHint = nextTask.minutes
-      ? `${nextTask.minutes} minutes`
-      : settings.healthState === 'scattered'
-        ? '10 minutes'
-        : '20 minutes';
-
-    setMindAction(
-      `Start "${nextTask.title}" now for ${durationHint}. Remove distractions and aim for one clean completion.`
-    );
+    const durationHint = nextTask.minutes ? `${nextTask.minutes} minutes` : settings.healthState === 'scattered' ? '10 minutes' : '20 minutes';
+    setMindAction(`Start "${nextTask.title}" now for ${durationHint}. Keep distractions out until it is done.`);
   }
 
   function refreshContext() {
@@ -774,21 +803,18 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
+        <img src={calmBanner} alt="Calming landscape banner" className="calm-banner" />
         <div>
           <p className="eyebrow">Focus Flow</p>
-          <h1>ADHD-friendly day planning</h1>
-          <p className="lede">
-            Signed in as {user.displayName}. Save status: {saveStatus}
-          </p>
+          <h1>Daily rhythm dashboard</h1>
+          <p className="lede">Signed in as {user.displayName}. Save status: {saveStatus}</p>
         </div>
 
         {!settings.preferences?.setupComplete && (
           <section className="card setup-card">
             <p className="card-label">First login setup</p>
-            <h3>Set your default phase durations</h3>
-            <p className="lede">
-              Confirm your baseline durations here once. You can edit them later in Settings.
-            </p>
+            <h3>Set initial phase durations</h3>
+            <p className="lede">These are setup values only. Ongoing defaults live in Settings.</p>
             <div className="setup-grid">
               {settings.phases.map((phase) => (
                 <label key={phase.id}>
@@ -807,30 +833,37 @@ export default function App() {
                 </label>
               ))}
             </div>
-            <button onClick={completeFirstSetup}>Save defaults</button>
+            <button onClick={completeFirstSetup}>Save setup</button>
           </section>
         )}
 
         <div className="phase-list">
-          {settings.phases.map((phase) => (
-            <button
-              key={phase.id}
-              className={`phase-chip ${phase.id === settings.activePhaseId ? 'active' : ''}`}
-              onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
-            >
-              <span>{phase.name}</span>
-              <small>{phase.defaultMinutes} min default</small>
-            </button>
-          ))}
+          {settings.phases.map((phase) => {
+            const openTasks = phase.tasks.filter((task) => !task.done).length;
+            return (
+              <button
+                key={phase.id}
+                className={`phase-chip ${phase.id === settings.activePhaseId ? 'active' : ''}`}
+                onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
+              >
+                <span>{phase.name}</span>
+                <small>{openTasks} open tasks</small>
+              </button>
+            );
+          })}
         </div>
 
         <div className="card nav-note-card">
-          <p className="card-label">Phase editing</p>
-          <p className="muted-copy">Need a phase in the middle or a rename? Use Settings from the top-right menu.</p>
+          <p className="card-label">Navigation</p>
+          <p className="muted-copy">Need to adjust phase structure? Open Settings.</p>
+          <div className="button-row">
+            <button className="ghost small" onClick={() => setSiteView('settings')}>Open settings</button>
+            <button className="ghost small" onClick={() => setSiteView('profile')}>Open profile</button>
+          </div>
         </div>
 
         <div className="card accent-card">
-          <p className="card-label">Phase progress</p>
+          <p className="card-label">Progress</p>
           <strong>{Math.round(completionRatio * 100)}% complete</strong>
           <div className="progress-track" aria-hidden="true">
             <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
@@ -880,9 +913,7 @@ export default function App() {
             <p className="card-label">Profile</p>
             <h3>{user.displayName}</h3>
             <p className="muted-copy">{user.email}</p>
-            <p className="muted-copy">
-              Timezone: {settings.preferences?.timeZone || 'UTC'}
-            </p>
+            <p className="muted-copy">Timezone: {settings.preferences?.timeZone || 'UTC'}</p>
             <p className="muted-copy">
               Location:{' '}
               {settings.preferences?.location
@@ -900,10 +931,21 @@ export default function App() {
         {siteView === 'settings' && (
           <section className="card">
             <p className="card-label">Settings</p>
-            <h3>Default phase durations</h3>
-            <p className="muted-copy">
-              Insert phases anywhere, rename them, and update duration defaults.
-            </p>
+            <h3>Day template</h3>
+            <p className="muted-copy">Choose how task suggestions populate your phases.</p>
+            <div className="routine-grid">
+              {ROUTINE_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  className={`routine-chip ${settings.routineType === option.key ? 'active' : ''}`}
+                  onClick={() => applyRoutineTemplate(option.key)}
+                >
+                  <strong>{option.label}</strong>
+                  <small>{option.note}</small>
+                </button>
+              ))}
+            </div>
+            <h3>Phase structure and defaults</h3>
             <div className="settings-phase-list">
               {settings.phases.map((phase, index) => (
                 <div className="settings-phase-block" key={phase.id}>
@@ -913,11 +955,7 @@ export default function App() {
                   <div className="settings-phase-row">
                     <label>
                       Phase name
-                      <input
-                        type="text"
-                        value={phase.name}
-                        onChange={(event) => updatePhaseName(phase.id, event.target.value)}
-                      />
+                      <input type="text" value={phase.name} onChange={(event) => updatePhaseName(phase.id, event.target.value)} />
                     </label>
                     <label>
                       Default duration (min)
@@ -928,33 +966,12 @@ export default function App() {
                         onChange={(event) => updatePhaseDefault(phase.id, event.target.value)}
                       />
                     </label>
-                    <button
-                      className="ghost small"
-                      onClick={() => setSettingsPatch({ activePhaseId: phase.id })}
-                    >
-                      Make active
-                    </button>
+                    <button className="ghost small" onClick={() => setSettingsPatch({ activePhaseId: phase.id })}>Make active</button>
                   </div>
                 </div>
               ))}
-              <button className="secondary" onClick={() => insertPhaseAt(settings.phases.length)}>
-                + Add phase at end
-              </button>
+              <button className="secondary" onClick={() => insertPhaseAt(settings.phases.length)}>+ Add phase at end</button>
             </div>
-            <h3>Mind Check context</h3>
-            <p className="muted-copy">Timezone: {settings.preferences?.timeZone || 'UTC'}</p>
-            <p className="muted-copy">
-              Location:{' '}
-              {settings.preferences?.location
-                ? `${settings.preferences.location.latitude}, ${settings.preferences.location.longitude}`
-                : 'Not linked'}
-            </p>
-            <div className="button-row">
-              <button className="ghost" onClick={() => setSiteView('planner')}>Back to dashboard</button>
-              <button className="secondary" onClick={syncLocationNow}>Sync location</button>
-              <button className="ghost" onClick={refreshContext}>Refresh weather context</button>
-            </div>
-            {locationStatus && <p className="status-message">{locationStatus}</p>}
           </section>
         )}
 
@@ -972,23 +989,12 @@ export default function App() {
               <div className="phase-controls">
                 <label>
                   Phase duration (minutes)
-                  <input
-                    type="number"
-                    min="1"
-                    value={phaseDurationInput}
-                    onChange={(event) => setPhaseDurationInput(event.target.value)}
-                  />
+                  <input type="number" min="1" value={phaseDurationInput} onChange={(event) => setPhaseDurationInput(event.target.value)} />
                 </label>
-
                 <label>
                   Phase name
-                  <input
-                    type="text"
-                    value={activePhase.name}
-                    onChange={(event) => updateActivePhase({ name: event.target.value })}
-                  />
+                  <input type="text" value={activePhase.name} onChange={(event) => updateActivePhase({ name: event.target.value })} />
                 </label>
-
                 <div className="button-row phase-action-row">
                   <button onClick={handleStartPhase}>Start phase</button>
                   <button className="secondary" onClick={handlePausePhase}>Pause</button>
@@ -1007,7 +1013,7 @@ export default function App() {
 
               <p className="recommendation">
                 {activePhase.id === 'phase-1'
-                  ? 'Phase 1 start: anchor your morning with one high-leverage task before context switching.'
+                  ? 'Phase 1 starts your day: front-load planning, attention shaping, and one decisive action.'
                   : `You are in ${activePhase.name}. Keep transitions deliberate and visible.`}
               </p>
 
@@ -1017,22 +1023,15 @@ export default function App() {
                 <div className="context-box">
                   <p>
                     Current weather is {weather.summary} at {Math.round(weather.temperatureC)}°C.
-                    Sunrise: {formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}. Sunset:{' '}
-                    {formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}.
+                    Sunrise: {formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}. Sunset: {formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}.
                   </p>
                   <p>
                     UV now {weather.uvNow ?? 'n/a'}, max today {weather.uvMax ?? 'n/a'}. {weather.lightSuggestion}
                   </p>
                 </div>
               )}
-              {!weather && (
-                <p className="status-message">
-                  Location is not linked yet, so weather-aware guidance is limited to your timezone.
-                </p>
-              )}
 
               <p className="recommendation">{circadianText}</p>
-
               <div className="health-grid">
                 {HEALTH_OPTIONS.map((option) => (
                   <button
@@ -1044,9 +1043,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-
               <p className="recommendation">{recommendation}</p>
-
               <div className="button-row">
                 <button className="secondary" onClick={suggestNextAction}>Suggest next action</button>
                 <button className="ghost" onClick={refreshContext}>Refresh context</button>
@@ -1057,9 +1054,17 @@ export default function App() {
             <section className="card flow-card">
               <div className="section-header">
                 <div>
-                  <p className="card-label">Routine flow</p>
-                  <h3>Ordered checklist for this phase</h3>
+                  <p className="card-label">Task flow</p>
+                  <h3>Action list for this phase</h3>
                 </div>
+              </div>
+
+              <div className="suggestion-strip">
+                {activeSuggestions.map((suggestion) => (
+                  <button key={suggestion.title} className="ghost small" onClick={() => addSuggestionTask(suggestion)}>
+                    + {suggestion.title}
+                  </button>
+                ))}
               </div>
 
               <div className="task-list">
@@ -1072,26 +1077,24 @@ export default function App() {
                         onClick={() => toggleTask(task.id)}
                         aria-label={task.done ? `Mark ${task.title} incomplete` : `Mark ${task.title} complete`}
                       />
-
                       <div className="task-copy">
                         <strong>{task.title}</strong>
                         <span>
                           Step {index + 1}
-                          {task.minutes ? ` • ${task.minutes} min timer available` : ' • Flexible timing'}
+                          {task.minutes ? ` • ${task.minutes} min` : ' • Flexible timing'}
                         </span>
                         {taskTimerActive && (
                           <div className="nested-timer">
                             <span>Task timer: {formatSeconds(taskTimerRemaining)}</span>
-                            <button className="ghost small" onClick={stopTaskTimer}>Stop task timer</button>
+                            <button className="ghost small" onClick={stopTaskTimer}>Stop timer</button>
                           </div>
                         )}
                       </div>
-
                       <div className="task-actions">
                         <button className="ghost small" onClick={() => moveTask(task.id, 'up')}>Up</button>
                         <button className="ghost small" onClick={() => moveTask(task.id, 'down')}>Down</button>
                         {task.minutes && !taskTimerActive && (
-                          <button className="secondary small" onClick={() => startTaskTimer(task)}>Start timer</button>
+                          <button className="secondary small" onClick={() => startTaskTimer(task)}>Start</button>
                         )}
                       </div>
                     </article>
@@ -1100,19 +1103,8 @@ export default function App() {
               </div>
 
               <form className="add-task-form" onSubmit={addTask}>
-                <input
-                  type="text"
-                  placeholder="Add a task for this phase"
-                  value={taskTitleInput}
-                  onChange={(event) => setTaskTitleInput(event.target.value)}
-                />
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Timer min"
-                  value={taskMinutesInput}
-                  onChange={(event) => setTaskMinutesInput(event.target.value)}
-                />
+                <input type="text" placeholder="Add a task for this phase" value={taskTitleInput} onChange={(event) => setTaskTitleInput(event.target.value)} />
+                <input type="number" min="1" placeholder="Timer min" value={taskMinutesInput} onChange={(event) => setTaskMinutesInput(event.target.value)} />
                 <button type="submit">Add task</button>
               </form>
             </section>
