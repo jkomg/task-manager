@@ -36,6 +36,11 @@ export function buildDefaultState() {
     ],
     activePhaseId: 'phase-1',
     healthState: 'steady',
+    preferences: {
+      setupComplete: false,
+      timeZone: 'UTC',
+      location: null,
+    },
   };
 }
 
@@ -79,5 +84,20 @@ export function normalizeState(input) {
       ? input.activePhaseId
       : firstPhaseId,
     healthState: HEALTH_OPTIONS.includes(input.healthState) ? input.healthState : fallback.healthState,
+    preferences: {
+      setupComplete: Boolean(input.preferences?.setupComplete),
+      timeZone:
+        typeof input.preferences?.timeZone === 'string' && input.preferences.timeZone.trim()
+          ? input.preferences.timeZone
+          : fallback.preferences.timeZone,
+      location:
+        Number.isFinite(Number(input.preferences?.location?.latitude)) &&
+        Number.isFinite(Number(input.preferences?.location?.longitude))
+          ? {
+              latitude: Number(input.preferences.location.latitude),
+              longitude: Number(input.preferences.location.longitude),
+            }
+          : null,
+    },
   };
 }

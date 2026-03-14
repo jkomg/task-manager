@@ -7,6 +7,36 @@ import { buildDefaultState, normalizeState } from './defaultState.js';
 const app = express();
 const PORT = 3001;
 const SESSION_COOKIE = 'focus_flow_session';
+const WEATHER_CODE_LABELS = {
+  0: 'clear',
+  1: 'mostly clear',
+  2: 'partly cloudy',
+  3: 'overcast',
+  45: 'foggy',
+  48: 'foggy',
+  51: 'light drizzle',
+  53: 'drizzle',
+  55: 'heavy drizzle',
+  56: 'freezing drizzle',
+  57: 'freezing drizzle',
+  61: 'light rain',
+  63: 'rain',
+  65: 'heavy rain',
+  66: 'freezing rain',
+  67: 'freezing rain',
+  71: 'light snow',
+  73: 'snow',
+  75: 'heavy snow',
+  77: 'snow grains',
+  80: 'rain showers',
+  81: 'rain showers',
+  82: 'heavy rain showers',
+  85: 'snow showers',
+  86: 'snow showers',
+  95: 'thunderstorms',
+  96: 'thunderstorms with hail',
+  99: 'thunderstorms with hail',
+};
 
 app.use(express.json({ limit: '1mb' }));
 
@@ -69,6 +99,39 @@ function requireAuth(req, res, next) {
   req.user = row;
   req.sessionToken = token;
   next();
+}
+
+function getTimeDetails(timeZone) {
+  const safeTimeZone = timeZone || 'UTC';
+  const now = new Date();
+  let formatter;
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: safeTimeZone,
+      hour: '2-digit',
+      hour12: false,
+      weekday: 'long',
+    });
+  } catch {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      hour: '2-digit',
+      hour12: false,
+      weekday: 'long',
+    });
+  }
+  const parts = formatter.formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '12');
+  const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+
+  let period = 'evening';
+  if (hour >= 5 && hour < 12) {
+    period = 'morning';
+  } else if (hour >= 12 && hour < 17) {
+    period = 'afternoon';
+  }
+
+  return { hour, weekday, period };
 }
 
 app.get('/api/health', (_req, res) => {
@@ -162,6 +225,72 @@ app.put('/api/settings', requireAuth, (req, res) => {
     .run(JSON.stringify(nextState), req.user.id);
 
   res.json({ settings: nextState });
+});
+
+app.get('/api/context/brief', requireAuth, async (req, res) => {
+  const latitude = Number(req.query.lat);
+  const longitude = Number(req.query.lon);
+  const persisted = normalizeState(JSON.parse(req.user.settings_json));
+  const timeZone = String(req.query.timeZone ?? req.query.tz ?? persisted.preferences?.timeZone ?? 'UTC');
+  const timeDetails = getTimeDetails(timeZone);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return res.json({
+      timeZone,
+      ...timeDetails,
+      weather: null,
+    });
+  }
+
+  const query = new URLSearchParams({
+    latitude: String(latitude),
+    longitude: String(longitude),
+    timezone: timeZone,
+    current: 'temperature_2m,weather_code,uv_index,is_day',
+    daily: 'sunrise,sunset,uv_index_max',
+  });
+
+  try {
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${query.toString()}`);
+    if (!response.ok) {
+      throw new Error(`weather upstream ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const weatherCode = Number(payload?.current?.weather_code);
+    const uvNow = Number(payload?.current?.uv_index);
+    const uvMax = Number(payload?.daily?.uv_index_max?.[0]);
+
+    let lightSuggestion = 'A short outdoor light break can help stabilize attention.';
+    if (Number.isFinite(uvNow) && uvNow < 2) {
+      lightSuggestion = 'UV is low right now; prioritize bright outdoor light for circadian support.';
+    }
+    if (Number.isFinite(uvNow) && uvNow >= 6) {
+      lightSuggestion = 'UV is strong; a brief light break is still useful but avoid long direct exposure.';
+    }
+
+    return res.json({
+      timeZone,
+      ...timeDetails,
+      weather: {
+        temperatureC: Number(payload?.current?.temperature_2m),
+        code: weatherCode,
+        summary: WEATHER_CODE_LABELS[weatherCode] ?? 'mixed conditions',
+        isDay: Boolean(payload?.current?.is_day),
+        uvNow: Number.isFinite(uvNow) ? uvNow : null,
+        uvMax: Number.isFinite(uvMax) ? uvMax : null,
+        sunrise: payload?.daily?.sunrise?.[0] ?? null,
+        sunset: payload?.daily?.sunset?.[0] ?? null,
+        lightSuggestion,
+      },
+    });
+  } catch {
+    return res.json({
+      timeZone,
+      ...timeDetails,
+      weather: null,
+    });
+  }
 });
 
 app.listen(PORT, () => {
