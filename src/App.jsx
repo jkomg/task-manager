@@ -1,5 +1,14 @@
 import { Component, useEffect, useMemo, useRef, useState } from 'react';
-import calmBanner from './assets/calm-banner.svg';
+
+const GOAL_OPTIONS = [
+  { key: 'writing', label: 'Writing' },
+  { key: 'language', label: 'Language learning' },
+  { key: 'deep-focus', label: 'Deep focus' },
+  { key: 'health', label: 'Health & movement' },
+  { key: 'admin', label: 'Admin & life tasks' },
+  { key: 'study', label: 'Study & research' },
+  { key: 'creative', label: 'Creative projects' },
+];
 
 const HEALTH_OPTIONS = [
   { key: 'steady', label: 'Steady', guidance: 'Keep momentum with one clear next step and low friction.' },
@@ -211,8 +220,13 @@ const DEFAULT_SETTINGS = {
   routineType: 'session',
   preferences: {
     setupComplete: false,
+    onboardingComplete: false,
     timeZone: 'UTC',
     location: null,
+    goals: [],
+    trackCycle: false,
+    cycleStartDate: null,
+    cycleLength: 28,
   },
 };
 
@@ -337,31 +351,129 @@ function toF(c) {
   return Math.round(c * 9 / 5 + 32);
 }
 
-function getLightRecommendation(hour, weather) {
+function getDynamicLightRec(hour, weather, healthState, cycleInfo) {
   if (!weather) return null;
   const uv = weather.uvNow;
+  let base = null;
+
   if (hour >= 5 && hour < 9) {
-    if (uv != null && uv >= 6) return `UV already ${uv} — morning light through a window or open door works. Avoid prolonged direct exposure.`;
-    return 'Get outside now — morning light in the first 1–2 hours after waking is the strongest circadian anchor you have.';
+    if (uv != null && uv >= 6) {
+      base = `UV already ${uv} — morning light through a window or open door works.`;
+    } else {
+      base = 'Get outside now — morning light is the strongest circadian anchor you have.';
+    }
+  } else if (hour >= 9 && hour < 12) {
+    if (uv != null && uv >= 7) {
+      base = `UV is ${uv} — bright indoor or shaded outdoor light works. Keep direct exposure under 10 min.`;
+    } else {
+      base = `UV ${uv ?? 'low'} — a 10–15 min outdoor break now supports alertness.`;
+    }
+  } else if (hour >= 16 && hour < 20 && weather.sunset) {
+    base = 'Late afternoon light before sunset helps delay melatonin onset — even 10 min outside counts.';
   }
-  if (hour >= 9 && hour < 12) {
-    if (uv != null && uv >= 7) return `UV is ${uv} — bright indoor light or a shaded outdoor spot works. Keep direct exposure under 10 min.`;
-    return `UV ${uv ?? 'low'} — a 10–15 min outdoor break now supports alertness and helps lock in your wake signal.`;
+
+  if (!base) return null;
+
+  if (cycleInfo?.phase === 'follicular' || cycleInfo?.phase === 'ovulatory') {
+    base += ' Circadian sensitivity is high in this phase — light is especially effective right now.';
+  } else if (cycleInfo?.phase === 'menstrual' || cycleInfo?.phase === 'luteal-late') {
+    base += ' Gentle exposure works — no need to push.';
   }
-  if (hour >= 16 && hour < 20 && weather.sunset) {
-    return `Late afternoon light before sunset helps delay melatonin onset — even 10 min outside counts.`;
+
+  if (healthState === 'drained') {
+    base += ' Even 5 min counts when energy is low.';
   }
-  return null;
+
+  return base;
 }
 
-function greetingFor(period, weekday, name) {
-  const byPeriod = {
-    morning: `Good morning, ${name}.`,
-    afternoon: `Good afternoon, ${name}.`,
-    evening: `Good evening, ${name}.`,
+function getCyclePhase(cycleStartDate, cycleLength = 28) {
+  if (!cycleStartDate) return null;
+  try {
+    const start = new Date(cycleStartDate);
+    if (isNaN(start.getTime())) return null;
+    const today = new Date();
+    const daysSinceStart = Math.floor((today - start) / (1000 * 60 * 60 * 24));
+    const dayOfCycle = (daysSinceStart % cycleLength) + 1;
+
+    if (dayOfCycle <= 5) return { phase: 'menstrual', day: dayOfCycle, label: 'Menstrual' };
+    if (dayOfCycle <= 13) return { phase: 'follicular', day: dayOfCycle, label: 'Follicular' };
+    if (dayOfCycle <= 16) return { phase: 'ovulatory', day: dayOfCycle, label: 'Ovulatory' };
+    if (dayOfCycle <= 24) return { phase: 'luteal-early', day: dayOfCycle, label: 'Early Luteal' };
+    return { phase: 'luteal-late', day: dayOfCycle, label: 'Late Luteal' };
+  } catch {
+    return null;
+  }
+}
+
+function getCycleTip(cycleInfo) {
+  if (!cycleInfo) return null;
+  const tips = {
+    'menstrual': 'Energy may be lower today — lighter tasks and rest are valid choices.',
+    'follicular': 'Energy is rising — a good window for new ideas and learning.',
+    'ovulatory': 'Communication and output tend to peak here. Good time for generative work.',
+    'luteal-early': 'Analytical focus is strong. Good for revision, detail work, and organization.',
+    'luteal-late': 'Energy may be shifting. Reduce friction where you can.',
   };
-  const base = byPeriod[period] ?? `Hi, ${name}.`;
-  return weekday ? `${base} ${weekday}.` : base;
+  return tips[cycleInfo.phase] ?? null;
+}
+
+function getProactiveTask(contextHour, healthState, cycleInfo, goals, phases, activePhaseId) {
+  const activePhase = phases?.find((p) => p.id === activePhaseId);
+  if (!activePhase) return null;
+
+  const incompleteTasks = (activePhase.tasks ?? []).filter((t) => !t.done);
+  if (incompleteTasks.length === 0) return null;
+
+  const scored = incompleteTasks.map((task) => {
+    let score = 0;
+    const title = task.title.toLowerCase();
+
+    if (healthState === 'drained') {
+      if (task.minutes && task.minutes <= 10) score += 3;
+      else if (task.minutes && task.minutes <= 20) score += 1;
+    } else if (healthState === 'scattered') {
+      if (task.minutes) score += 2;
+    } else {
+      if (task.minutes && task.minutes >= 25) score += 1;
+    }
+
+    const window = circadianWindow(contextHour);
+    if (window.label === 'Cognitive Peak' || window.label === 'Rising Alertness') {
+      if (title.includes('deep') || title.includes('draft') || title.includes('writ')) score += 2;
+    } else if (window.label === 'Post-Lunch Dip') {
+      if (task.minutes && task.minutes <= 15) score += 2;
+      if (title.includes('review') || title.includes('admin') || title.includes('capture')) score += 1;
+    }
+
+    if (cycleInfo?.phase === 'menstrual' || cycleInfo?.phase === 'luteal-late') {
+      if (task.minutes && task.minutes <= 15) score += 1;
+    } else if (cycleInfo?.phase === 'follicular' || cycleInfo?.phase === 'ovulatory') {
+      if (title.includes('draft') || title.includes('creat') || title.includes('writ')) score += 1;
+    }
+
+    if (goals?.includes('language') && (title.includes('spanish') || title.includes('language'))) score += 2;
+    if (goals?.includes('writing') && (title.includes('writ') || title.includes('draft') || title.includes('capture'))) score += 2;
+    if (goals?.includes('health') && (title.includes('movement') || title.includes('rehab') || title.includes('body') || title.includes('walk'))) score += 2;
+
+    return { task, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.task ?? null;
+}
+
+function greetingFor(period, name) {
+  const byPeriod = {
+    morning: `Good morning, ${name}`,
+    afternoon: `Good afternoon, ${name}`,
+    evening: `Good evening, ${name}`,
+  };
+  return byPeriod[period] ?? `Hi, ${name}`;
+}
+
+function formatDateLong() {
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 }
 
 async function api(path, options = {}) {
@@ -487,6 +599,7 @@ export default function App() {
   const [mindContext, setMindContext] = useState({ loading: false, data: null, error: '' });
   const [mindAction, setMindAction] = useState('');
   const [dayCheck, setDayCheck] = useState(null); // null | 'better' | 'mildly-worse' | 'clearly-worse'
+  const [onboardingStep, setOnboardingStep] = useState(0);
   const [authForm, setAuthForm] = useState({
     displayName: '',
     email: '',
@@ -773,7 +886,6 @@ export default function App() {
   }
 
   function handleStartPhase() {
-    setPhaseRemaining(activePhase.defaultMinutes * 60);
     setPhaseRunning(true);
   }
 
@@ -909,6 +1021,7 @@ export default function App() {
       preferences: {
         ...(current.preferences ?? {}),
         setupComplete: true,
+        onboardingComplete: true,
       },
     }));
     setSiteView('planner');
@@ -1027,16 +1140,19 @@ export default function App() {
 
   const contextPeriod = mindContext.data?.period ?? 'morning';
   const contextHour = mindContext.data?.hour ?? new Date().getHours();
-  const contextWeekday = mindContext.data?.weekday ?? '';
-  const greeting = greetingFor(contextPeriod, contextWeekday, firstName(user.displayName));
+  const greeting = greetingFor(contextPeriod, firstName(user.displayName));
   const weather = mindContext.data?.weather;
   const circadian = circadianWindow(contextHour);
+  const cycleInfo = settings.preferences?.trackCycle
+    ? getCyclePhase(settings.preferences.cycleStartDate, settings.preferences.cycleLength)
+    : null;
+  const cycleTip = getCycleTip(cycleInfo);
+  const goals = settings.preferences?.goals ?? [];
+  const proactiveTask = getProactiveTask(contextHour, settings.healthState, cycleInfo, goals, settings.phases, settings.activePhaseId);
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <img src={calmBanner} alt="Calming landscape banner" className="calm-banner" />
-
         <div className="sidebar-identity">
           <span className="sidebar-app-name">Focus Flow</span>
           <div className="sidebar-user">
@@ -1049,39 +1165,9 @@ export default function App() {
           </div>
         </div>
 
-        {!settings.preferences?.setupComplete && (
-          <section className="card setup-card">
-            <p className="card-label">First login setup</p>
-            <h3>Set initial phase durations</h3>
-            <p className="lede">These are setup values only. Ongoing defaults live in Settings.</p>
-            <div className="setup-grid">
-              {settings.phases.map((phase) => (
-                <label key={phase.id}>
-                  {phase.name}
-                  <input
-                    type="number"
-                    min="1"
-                    value={setupDraft[phase.id] ?? phase.defaultMinutes}
-                    onChange={(event) =>
-                      setSetupDraft((current) => ({
-                        ...current,
-                        [phase.id]: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-            <button onClick={completeFirstSetup}>Save setup</button>
-          </section>
-        )}
-
         <div className="sidebar-footer">
-          <div className="sidebar-progress">
-            <div className="progress-track" aria-label={`${Math.round(completionRatio * 100)}% of phase tasks complete`}>
-              <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
-            </div>
-            <span className="sidebar-progress-label">{Math.round(completionRatio * 100)}%</span>
+          <div className="progress-track" aria-label={`${Math.round(completionRatio * 100)}% of phase tasks complete`}>
+            <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
           </div>
         </div>
       </aside>
@@ -1133,13 +1219,66 @@ export default function App() {
             <h3>{user.displayName}</h3>
             <p className="muted-copy">{user.email}</p>
             <p className="muted-copy">Timezone: {settings.preferences?.timeZone || 'UTC'}</p>
-            <p className="muted-copy">
-              Location:{' '}
-              {settings.preferences?.location
-                ? `${settings.preferences.location.latitude}, ${settings.preferences.location.longitude}`
-                : 'Not linked'}
-            </p>
-            <div className="button-row">
+
+            <div style={{ marginTop: '1rem' }}>
+              <p className="card-label">Goals</p>
+              <div className="goal-grid">
+                {GOAL_OPTIONS.map((goal) => (
+                  <button
+                    key={goal.key}
+                    className={`goal-chip ${(settings.preferences?.goals ?? []).includes(goal.key) ? 'active' : 'ghost'}`}
+                    onClick={() => {
+                      const current = settings.preferences?.goals ?? [];
+                      const next = current.includes(goal.key)
+                        ? current.filter((g) => g !== goal.key)
+                        : [...current, goal.key];
+                      setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), goals: next } }));
+                    }}
+                  >
+                    {goal.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1rem' }}>
+              <p className="card-label">Cycle tracking</p>
+              <div className="button-row" style={{ marginBottom: '0.5rem' }}>
+                <button
+                  className={settings.preferences?.trackCycle ? 'secondary small' : 'ghost small'}
+                  onClick={() => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), trackCycle: !s.preferences?.trackCycle } }))}
+                >
+                  {settings.preferences?.trackCycle ? 'Tracking enabled' : 'Enable cycle tracking'}
+                </button>
+              </div>
+              {settings.preferences?.trackCycle && (
+                <div className="setup-grid">
+                  <label>
+                    Last period start date
+                    <input
+                      type="date"
+                      value={settings.preferences?.cycleStartDate ?? ''}
+                      onChange={(e) => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), cycleStartDate: e.target.value } }))}
+                    />
+                  </label>
+                  <label>
+                    Average cycle length (days)
+                    <input
+                      type="number"
+                      min="20"
+                      max="45"
+                      value={settings.preferences?.cycleLength ?? 28}
+                      onChange={(e) => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), cycleLength: Number(e.target.value) } }))}
+                    />
+                  </label>
+                  {cycleInfo && (
+                    <p className="muted-copy">Current phase: {cycleInfo.label} (day {cycleInfo.day})</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="button-row" style={{ marginTop: '1rem' }}>
               <button className="ghost" onClick={() => setSiteView('planner')}>Back to dashboard</button>
               <button className="secondary" onClick={syncLocationNow}>Update location</button>
             </div>
@@ -1194,8 +1333,159 @@ export default function App() {
           </section>
         )}
 
-        {siteView === 'planner' && (
+        {siteView === 'planner' && !settings.preferences?.onboardingComplete && (
+          <section className="card onboarding-card">
+            {onboardingStep === 0 && (
+              <>
+                <p className="card-label">Welcome to Focus Flow</p>
+                <h2>What are you working toward?</h2>
+                <p className="lede">Select everything that applies — this helps the app surface the right tasks and timing for you.</p>
+                <div className="goal-grid">
+                  {GOAL_OPTIONS.map((goal) => (
+                    <button
+                      key={goal.key}
+                      className={`goal-chip ${goals.includes(goal.key) ? 'active' : 'ghost'}`}
+                      onClick={() => {
+                        const current = settings.preferences?.goals ?? [];
+                        const next = current.includes(goal.key)
+                          ? current.filter((g) => g !== goal.key)
+                          : [...current, goal.key];
+                        setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), goals: next } }));
+                      }}
+                    >
+                      {goal.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="secondary" style={{ marginTop: '1rem' }} onClick={() => setOnboardingStep(1)}>
+                  Continue
+                </button>
+              </>
+            )}
+
+            {onboardingStep === 1 && (
+              <>
+                <p className="card-label">Optional: hormonal context</p>
+                <h2>Do you want to track your cycle?</h2>
+                <p className="lede">
+                  If you track a menstrual cycle, Focus Flow can offer gentle nudges based on your current phase — no pressure, always optional, and easy to update anytime.
+                </p>
+                <div className="button-row" style={{ marginTop: '0.5rem' }}>
+                  <button
+                    className={settings.preferences?.trackCycle ? 'secondary' : 'ghost'}
+                    onClick={() => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), trackCycle: true } }))}
+                  >
+                    Yes, track my cycle
+                  </button>
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), trackCycle: false } }));
+                      setOnboardingStep(2);
+                    }}
+                  >
+                    Skip for now
+                  </button>
+                </div>
+                {settings.preferences?.trackCycle && (
+                  <div className="setup-grid" style={{ marginTop: '1rem' }}>
+                    <label>
+                      When did your last period start?
+                      <input
+                        type="date"
+                        value={settings.preferences?.cycleStartDate ?? ''}
+                        onChange={(e) => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), cycleStartDate: e.target.value } }))}
+                      />
+                    </label>
+                    <label>
+                      Average cycle length (days)
+                      <input
+                        type="number"
+                        min="20"
+                        max="45"
+                        value={settings.preferences?.cycleLength ?? 28}
+                        onChange={(e) => setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), cycleLength: Number(e.target.value) } }))}
+                      />
+                    </label>
+                    <button className="secondary" onClick={() => setOnboardingStep(2)}>Continue</button>
+                  </div>
+                )}
+                <button className="ghost small" style={{ marginTop: '0.5rem' }} onClick={() => setOnboardingStep(0)}>
+                  Back
+                </button>
+              </>
+            )}
+
+            {onboardingStep === 2 && (
+              <>
+                <p className="card-label">Almost there</p>
+                <h2>Set your phase durations</h2>
+                <p className="lede">How long do you want each phase to run by default? You can adjust these anytime in Settings.</p>
+                <div className="setup-grid">
+                  {settings.phases.map((phase) => (
+                    <label key={phase.id}>
+                      {phase.name}
+                      <input
+                        type="number"
+                        min="1"
+                        value={setupDraft[phase.id] ?? phase.defaultMinutes}
+                        onChange={(e) =>
+                          setSetupDraft((current) => ({ ...current, [phase.id]: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div className="button-row" style={{ marginTop: '1rem' }}>
+                  <button className="secondary" onClick={completeFirstSetup}>Start your day</button>
+                  <button className="ghost small" onClick={() => setOnboardingStep(1)}>Back</button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {siteView === 'planner' && settings.preferences?.onboardingComplete && (
           <>
+            {/* Greeting + weather + circadian — first card */}
+            {(() => {
+              const lightRec = getDynamicLightRec(contextHour, weather, settings.healthState, cycleInfo);
+              return (
+                <div className="context-strip card">
+                  <div className="context-strip-top">
+                    <div>
+                      <span className="context-greeting">{greeting}.</span>
+                      <span className="context-date"> {formatDateLong()}</span>
+                    </div>
+                    {weather ? (
+                      <span className="context-weather-inline">
+                        {weather.summary} · {toF(weather.temperatureC)}°F
+                        {' · '}↑{formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}
+                        {' '}↓{formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}
+                        {weather.uvNow != null ? ` · UV ${weather.uvNow}` : ''}
+                      </span>
+                    ) : mindContext.loading ? (
+                      <span className="context-weather-inline muted-copy">Loading…</span>
+                    ) : null}
+                  </div>
+                  <div className="context-strip-circadian">
+                    <strong>{circadian.label}:</strong>{' '}
+                    {circadian.cognitive ?? circadian.body}
+                  </div>
+                  {cycleTip && (
+                    <div className="context-cycle-tip">
+                      {cycleInfo.label} day {cycleInfo.day} — {cycleTip}
+                    </div>
+                  )}
+                  {lightRec && (
+                    <div className="context-light-rec">
+                      ☀ {lightRec}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Phase timeline strip */}
             <div className="card phase-map-card">
               {(() => {
@@ -1223,37 +1513,6 @@ export default function App() {
                 });
               })()}
             </div>
-
-            {/* Context strip: time + weather + circadian */}
-            {(() => {
-              const lightRec = getLightRecommendation(contextHour, weather);
-              return (
-                <div className="context-strip card">
-                  <div className="context-strip-top">
-                    <span className="context-greeting">{greeting}</span>
-                    {weather ? (
-                      <span className="context-weather-inline">
-                        {weather.summary} · {toF(weather.temperatureC)}°F
-                        {' · '}↑{formatClockFromIso(weather.sunrise, mindContext.data?.timeZone)}
-                        {' '}↓{formatClockFromIso(weather.sunset, mindContext.data?.timeZone)}
-                        {weather.uvNow != null ? ` · UV ${weather.uvNow}` : ''}
-                      </span>
-                    ) : mindContext.loading ? (
-                      <span className="context-weather-inline muted-copy">Loading weather…</span>
-                    ) : null}
-                  </div>
-                  <div className="context-strip-circadian">
-                    <strong>{circadian.label}:</strong>{' '}
-                    {circadian.cognitive ?? circadian.body}
-                  </div>
-                  {lightRec && (
-                    <div className="context-light-rec">
-                      ☀ {lightRec}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
 
             {/* Morning check-in (dismissible) */}
             {!checkInDone && (
@@ -1291,6 +1550,20 @@ export default function App() {
                       Start the day →
                     </button>
                   </>
+                )}
+              </div>
+            )}
+
+            {/* Proactive task suggestion */}
+            {checkInDone && proactiveTask && (
+              <div className="card proactive-card">
+                <p className="card-label">Now</p>
+                <p className="proactive-prompt">
+                  Based on your circadian window{cycleInfo ? `, ${cycleInfo.label.toLowerCase()} phase,` : ''} and attention state:
+                </p>
+                <p className="proactive-task">{proactiveTask.title}</p>
+                {proactiveTask.minutes && (
+                  <p className="proactive-meta">{proactiveTask.minutes} min · {activePhase.name}</p>
                 )}
               </div>
             )}
@@ -1378,25 +1651,28 @@ export default function App() {
                                 />
                                 <div className="task-copy">
                                   <span className="task-title">{task.title}</span>
-                                  {task.minutes && !timerRunning && (
+                                  {task.minutes && !timer && (
                                     <span className="task-duration">{task.minutes} min</span>
                                   )}
-                                  {timerRunning && (
-                                    <span className="task-timer-running">{formatSeconds(timerSeconds)}</span>
+                                  {timer && (
+                                    <span className="task-timer-running">
+                                      {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}
+                                      {' · '}{task.minutes}m total
+                                    </span>
                                   )}
                                 </div>
                                 <div className="task-actions">
                                   {task.minutes && (
                                     <button
                                       className={`task-timer-btn ${timerRunning ? 'active' : ''}`}
-                                      onClick={() => timerRunning ? toggleTaskTimer(task.id, task.minutes) : toggleTaskTimer(task.id, task.minutes)}
+                                      onClick={() => toggleTaskTimer(task.id, task.minutes)}
                                       title={timerRunning ? 'Pause timer' : `Start ${task.minutes}m timer`}
                                     >
                                       {timerRunning ? '⏸' : '▶'}
                                     </button>
                                   )}
-                                  {timer && !timerRunning && (
-                                    <button className="ghost small" onClick={() => resetTaskTimer(task.id)} title="Clear timer">✕</button>
+                                  {timer && (
+                                    <button className="ghost small" onClick={() => resetTaskTimer(task.id)} title="Reset timer">↺</button>
                                   )}
                                   <button className="ghost small" onClick={() => startEditTask(task)}>Edit</button>
                                 </div>
