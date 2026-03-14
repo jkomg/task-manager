@@ -842,29 +842,36 @@ export default function App() {
         <header className="card topbar-card">
           <div>
             <p className="card-label">Workspace</p>
-            <h2>{siteView === 'planner' ? 'Planner' : siteView === 'settings' ? 'Settings' : 'Profile'}</h2>
+            <h2>{siteView === 'planner' ? 'Dashboard' : siteView === 'settings' ? 'Settings' : 'Profile'}</h2>
           </div>
 
-          <div className="profile-menu-wrap" ref={menuRef}>
-            <button className="profile-trigger" onClick={() => setMenuOpen((current) => !current)}>
-              {firstName(user.displayName).slice(0, 1).toUpperCase()}
-            </button>
-            {menuOpen && (
-              <div className="profile-menu">
-                <button className="ghost menu-item" onClick={() => { setSiteView('profile'); setMenuOpen(false); }}>
-                  Profile
-                </button>
-                <button className="ghost menu-item" onClick={() => { setSiteView('settings'); setMenuOpen(false); }}>
-                  Settings
-                </button>
-                <button className="ghost menu-item" onClick={() => { setSiteView('planner'); setMenuOpen(false); }}>
-                  Planner
-                </button>
-                <button className="ghost menu-item" onClick={handleLogout}>
-                  Sign out
-                </button>
-              </div>
+          <div className="topbar-actions">
+            {siteView !== 'planner' && (
+              <button className="ghost small" onClick={() => setSiteView('planner')}>
+                Back to dashboard
+              </button>
             )}
+            <div className="profile-menu-wrap" ref={menuRef}>
+              <button className="profile-trigger" onClick={() => setMenuOpen((current) => !current)}>
+                {firstName(user.displayName).slice(0, 1).toUpperCase()}
+              </button>
+              {menuOpen && (
+                <div className="profile-menu">
+                  <button className="ghost menu-item" onClick={() => { setSiteView('profile'); setMenuOpen(false); }}>
+                    Profile
+                  </button>
+                  <button className="ghost menu-item" onClick={() => { setSiteView('settings'); setMenuOpen(false); }}>
+                    Settings
+                  </button>
+                  <button className="ghost menu-item" onClick={() => { setSiteView('planner'); setMenuOpen(false); }}>
+                    Dashboard
+                  </button>
+                  <button className="ghost menu-item" onClick={handleLogout}>
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -882,7 +889,10 @@ export default function App() {
                 ? `${settings.preferences.location.latitude}, ${settings.preferences.location.longitude}`
                 : 'Not linked'}
             </p>
-            <button className="secondary" onClick={syncLocationNow}>Update location</button>
+            <div className="button-row">
+              <button className="ghost" onClick={() => setSiteView('planner')}>Back to dashboard</button>
+              <button className="secondary" onClick={syncLocationNow}>Update location</button>
+            </div>
             {locationStatus && <p className="status-message">{locationStatus}</p>}
           </section>
         )}
@@ -940,6 +950,7 @@ export default function App() {
                 : 'Not linked'}
             </p>
             <div className="button-row">
+              <button className="ghost" onClick={() => setSiteView('planner')}>Back to dashboard</button>
               <button className="secondary" onClick={syncLocationNow}>Sync location</button>
               <button className="ghost" onClick={refreshContext}>Refresh weather context</button>
             </div>

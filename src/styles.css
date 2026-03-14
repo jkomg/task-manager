@@ -266,6 +266,12 @@ button:disabled {
   position: relative;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .profile-trigger {
   width: 46px;
   height: 46px;
