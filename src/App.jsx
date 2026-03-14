@@ -124,15 +124,29 @@ function getRecommendedWritingMode(phaseName, healthState) {
   const isBody       = n.includes('body') || n.includes('recovery');
   const isEvening    = n.includes('drift') || n.includes('wind') || n.includes('evening') || n.includes('night');
 
-  if (isQuiet) return 'Study';
-  if (isActivation) return healthState === 'drained' ? 'Capture' : 'Compost';
+  if (isQuiet) {
+    if (healthState === 'drained' || healthState === 'scattered') return 'Capture';
+    return 'Study';
+  }
+  if (isActivation) {
+    if (healthState === 'drained') return 'Capture';
+    if (healthState === 'scattered') return 'Capture';
+    return 'Compost';
+  }
   if (isDeep) {
     if (healthState === 'drained') return 'Study';
     if (healthState === 'scattered') return 'Compost';
     return 'Draft';
   }
-  if (isBody) return 'Capture';
-  if (isEvening) return healthState === 'drained' ? 'Capture' : 'Revise';
+  if (isBody) {
+    if (healthState === 'drained') return 'Capture';
+    return 'Capture';
+  }
+  if (isEvening) {
+    if (healthState === 'drained') return 'Capture';
+    if (healthState === 'scattered') return 'Capture';
+    return 'Revise';
+  }
   if (healthState === 'drained') return 'Capture';
   if (healthState === 'scattered') return 'Compost';
   return 'Draft';
@@ -1034,10 +1048,6 @@ export default function App() {
               <div className="progress-fill" style={{ width: `${completionRatio * 100}%` }} />
             </div>
             <span className="sidebar-progress-label">{Math.round(completionRatio * 100)}%</span>
-          </div>
-          <div className="sidebar-nav-links">
-            <button className="ghost small" onClick={() => setSiteView('settings')}>Settings</button>
-            <button className="ghost small" onClick={() => setSiteView('profile')}>Profile</button>
           </div>
         </div>
       </aside>
