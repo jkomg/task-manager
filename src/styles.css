@@ -11,8 +11,8 @@
   --bg-1: #e6f0ec;
   --surface: rgba(255, 255, 255, 0.82);
   --surface-strong: rgba(255, 255, 255, 0.93);
-  --ink: #1f3440;
-  --muted: #4f6672;
+  --ink: #162832;
+  --muted: #3e5460;
   --line: rgba(38, 70, 86, 0.16);
   --primary: #4f7e95;
   --primary-strong: #3f6d83;
@@ -138,13 +138,12 @@ button.small {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.88rem;
+  display: block;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 0.75rem;
 }
 
-.sidebar,
 .main-grid,
 .main-stack {
   display: grid;
@@ -660,7 +659,7 @@ h3 {
 
 .task-title {
   font-size: 0.93rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -715,21 +714,29 @@ h3 {
   box-shadow: 0 2px 12px rgba(79, 126, 149, 0.08);
 }
 
+.phase-section.collapsed .phase-section-header {
+  padding-bottom: 0.85rem;
+}
+
+.phase-chevron {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-left: 0.15rem;
+  flex-shrink: 0;
+}
+
 .phase-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.85rem 1rem;
-  cursor: default;
-}
-
-.phase-section:not(.active) .phase-section-header {
   cursor: pointer;
+  user-select: none;
 }
 
-.phase-section:not(.active) .phase-section-header:hover {
-  background: rgba(255,255,255,0.5);
+.phase-section-header:hover {
+  background: rgba(255,255,255,0.45);
 }
 
 .phase-header-left {
@@ -857,8 +864,15 @@ h3 {
 }
 
 .context-greeting {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1.05rem;
   color: var(--ink);
+}
+
+.context-date {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .context-weather-inline {
@@ -875,6 +889,81 @@ h3 {
 .context-light-tip {
   color: var(--primary-strong);
   font-weight: 500;
+}
+
+.context-light-rec {
+  font-size: 0.82rem;
+  color: var(--primary-strong);
+  font-weight: 500;
+  padding: 0.35rem 0.5rem;
+  background: rgba(79, 126, 149, 0.07);
+  border-radius: 8px;
+  border: 1px solid rgba(79, 126, 149, 0.15);
+}
+
+.context-cycle-tip {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.32rem 0.5rem;
+  background: rgba(107, 156, 159, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(107, 156, 159, 0.18);
+  font-style: italic;
+}
+
+/* Goal chips */
+.goal-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+
+.goal-chip {
+  font-size: 0.88rem;
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+}
+
+.goal-chip.active {
+  background: rgba(79, 126, 149, 0.22);
+  color: var(--primary-strong);
+  border: 1px solid rgba(79, 126, 149, 0.35);
+}
+
+/* Onboarding */
+.onboarding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Proactive task card */
+.proactive-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border-left: 3px solid var(--secondary);
+  background: rgba(107, 156, 159, 0.06);
+}
+
+.proactive-prompt {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.proactive-task {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.proactive-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0;
 }
 
 /* Check-in card */
@@ -1241,7 +1330,7 @@ h3 {
 
 @media (min-width: 700px) {
   .app-shell {
-    padding: 1rem;
+    padding: 1rem 1.5rem;
   }
 
   .phase-controls {
@@ -1260,19 +1349,35 @@ h3 {
 
 @media (min-width: 1080px) {
   .app-shell {
-    grid-template-columns: minmax(17.5rem, 21rem) minmax(0, 1fr);
-    gap: 1rem;
-    padding: 1rem 1rem 1.2rem;
+    padding: 1.25rem 2rem 1.5rem;
+    max-width: 800px;
+  }
+}
+
+/* Reduce phase map min-width on mobile */
+@media (max-width: 480px) {
+  .phase-map-segment {
+    min-width: 5rem;
+    padding: 0.4rem 0.45rem;
   }
 
-  .sidebar {
-    align-content: start;
-    position: sticky;
-    top: 0.8rem;
-    height: fit-content;
+  .phase-map-name {
+    font-size: 0.76rem;
   }
 
-  .main-stack {
-    max-width: 760px;
+  .phase-map-hours {
+    font-size: 0.62rem;
+  }
+
+  .context-strip {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .task-actions {
+    gap: 0.35rem;
+  }
+
+  .phase-section-header {
+    padding: 0.7rem 0.75rem;
   }
 }

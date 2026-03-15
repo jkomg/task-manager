@@ -62,8 +62,13 @@ export function buildDefaultState() {
     routineType: 'session',
     preferences: {
       setupComplete: false,
+      onboardingComplete: false,
       timeZone: 'UTC',
       location: null,
+      goals: [],
+      trackCycle: false,
+      cycleStartDate: null,
+      cycleLength: 28,
     },
   };
 }
@@ -111,6 +116,7 @@ export function normalizeState(input) {
     routineType: input.routineType === 'integration' ? 'integration' : 'session',
     preferences: {
       setupComplete: Boolean(input.preferences?.setupComplete),
+      onboardingComplete: Boolean(input.preferences?.onboardingComplete) || Boolean(input.preferences?.setupComplete),
       timeZone:
         typeof input.preferences?.timeZone === 'string' && input.preferences.timeZone.trim()
           ? input.preferences.timeZone
@@ -123,6 +129,18 @@ export function normalizeState(input) {
               longitude: Number(input.preferences.location.longitude),
             }
           : null,
+      goals: Array.isArray(input.preferences?.goals)
+        ? input.preferences.goals.filter((g) => typeof g === 'string')
+        : [],
+      trackCycle: Boolean(input.preferences?.trackCycle),
+      cycleStartDate:
+        typeof input.preferences?.cycleStartDate === 'string' && input.preferences.cycleStartDate
+          ? input.preferences.cycleStartDate
+          : null,
+      cycleLength:
+        Number.isFinite(Number(input.preferences?.cycleLength)) && Number(input.preferences.cycleLength) > 0
+          ? Number(input.preferences.cycleLength)
+          : 28,
     },
   };
 }
