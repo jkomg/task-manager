@@ -901,6 +901,85 @@ h3 {
   border: 1px solid rgba(79, 126, 149, 0.15);
 }
 
+/* Active profile block inside context strip */
+.profile-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.profile-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.profile-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--primary-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.profile-tagline {
+  font-size: 0.82rem;
+  color: var(--ink);
+  font-weight: 400;
+}
+
+.profile-chevron {
+  font-size: 0.72rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.profile-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(79, 126, 149, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(79, 126, 149, 0.12);
+  margin-top: 0.2rem;
+}
+
+.profile-detail-text {
+  font-size: 0.82rem;
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.profile-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.profile-source-link {
+  font-size: 0.74rem;
+  color: var(--primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(63, 109, 131, 0.4);
+  word-break: break-word;
+}
+
+.profile-source-link:hover {
+  text-decoration-color: var(--primary-strong);
+}
+
+/* Subtle task fit indicator */
+.task-row.fit-hint {
+  border-left: 2px solid rgba(107, 156, 159, 0.5);
+}
+
 .context-cycle-tip {
   font-size: 0.82rem;
   color: var(--muted);
