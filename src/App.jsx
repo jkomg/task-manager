@@ -351,6 +351,246 @@ function toF(c) {
   return Math.round(c * 9 / 5 + 32);
 }
 
+// Returns the circadian window key based on hours since waking.
+// Windows are relative to wake time, not clock time — accounts for ADHD's
+// ~90-minute delayed circadian phase (Kooij et al., 2025).
+function getCircadianWindowKey(hoursAwake) {
+  if (hoursAwake < 1.5) return 'car';        // cortisol awakening response
+  if (hoursAwake < 4.5) return 'rising';     // alertness climbing
+  if (hoursAwake < 7)   return 'peak';       // cognitive peak
+  if (hoursAwake < 9)   return 'trough';     // natural alertness dip
+  if (hoursAwake < 12)  return 'secondWind'; // body temp peak
+  if (hoursAwake < 15)  return 'windDown';   // melatonin onset approaching
+  return 'melatonin';
+}
+
+// Named context profiles: each one is a specific combination of circadian
+// window + health state + cycle phase. Plain-language explanations only —
+// no jargon, no verdict. Sources linked so users can go deeper.
+const ADHD_PROFILES = {
+  softStart: {
+    name: 'Soft Start',
+    tagline: 'Cortisol is rising — easy does it for the first hour or two.',
+    detail: 'Cortisol peaks in the first 30–60 minutes after waking and helps orient you to the day. ADHD brains typically show a slower, delayed cortisol rise than neurotypical brains — so the "waking up" window often runs longer. Input, reading, and orientation work well here. High-stakes decisions or new generative work tend to cost more than they return this early.',
+    sources: [
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+      { title: 'Delayed circadian rhythm in adults with ADHD (Van Veen et al., 2010)', url: 'https://pubmed.ncbi.nlm.nih.gov/20163790/' },
+    ],
+    taskTypes: ['capture', 'study', 'short'],
+    blockMinutes: 20,
+  },
+  gentleStart: {
+    name: 'Gentle Start',
+    tagline: 'Lower hormonal support plus early window — start light and build.',
+    detail: 'Estrogen and progesterone are both low right now, which reduces dopamine availability at the same time your brain is still warming up. Research shows that ADHD symptoms — particularly inattention — are measurably higher when estrogen is low, because estrogen directly supports dopamine synthesis and reuptake. Capture and gentle input are the most natural fit. Save generative work for later when your window opens.',
+    sources: [
+      { title: 'Reproductive steroids and ADHD symptoms across the menstrual cycle (Robison et al., 2018)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5803442/' },
+      { title: 'ADHD and the menstrual cycle: theory and evidence (Petrovic et al., 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10872410/' },
+    ],
+    taskTypes: ['capture', 'short'],
+    blockMinutes: 15,
+  },
+  risingCapacity: {
+    name: 'Rising Capacity',
+    tagline: 'Working memory is building — good for absorbing and input-style work.',
+    detail: 'Alertness and working memory climb steadily in the first few hours after waking. Because ADHD\'s circadian phase runs roughly 90 minutes later than average, this window often arrives later in the day than neurotypical schedules assume — which is why mornings can feel sluggish even after enough sleep. Study, reading, and structured input tend to land well here.',
+    sources: [
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+    ],
+    taskTypes: ['study', 'capture', 'admin'],
+    blockMinutes: 25,
+  },
+  strongInput: {
+    name: 'Strong Input Window',
+    tagline: 'Rising estrogen is supporting your focus — good time to absorb and build.',
+    detail: 'You\'re in a rising estrogen phase, which promotes dopamine synthesis and improves working memory and sustained attention. Paired with your alertness window, this is a strong time for study, structured reading, and language work. Generative output tends to land a bit later as your cognitive peak arrives.',
+    sources: [
+      { title: 'Menstrual cycle-related hormonal fluctuations in ADHD (MDPI, 2025)', url: 'https://www.mdpi.com/2077-0383/15/1/121' },
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+    ],
+    taskTypes: ['study', 'creative', 'capture'],
+    blockMinutes: 30,
+  },
+  lightInput: {
+    name: 'Light Input',
+    tagline: 'Alertness building, but lower hormonal support — keep tasks absorptive.',
+    detail: 'Your alertness is climbing, but lower estrogen right now means less dopamine support than usual. Study and input-style tasks fit better here than generative output. Your brain is still capable — this is just context so you can set realistic expectations and pick tasks that work with what\'s available.',
+    sources: [
+      { title: 'ADHD and the menstrual cycle: theory and evidence (Petrovic et al., 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10872410/' },
+    ],
+    taskTypes: ['study', 'capture', 'short'],
+    blockMinutes: 20,
+  },
+  highCapacity: {
+    name: 'High Capacity',
+    tagline: 'Cognitive window is open and hormonal support is strong.',
+    detail: 'You\'re in your circadian peak window — roughly 4.5–7 hours after waking, where working memory and processing speed are highest for most people. Estrogen is actively supporting dopamine right now, which helps with sustained attention and task initiation. This is when generative work, drafting, and harder analytical tasks tend to cost the least effort.',
+    sources: [
+      { title: 'Time of day and chronotype in cognitive function (Blatter & Cajochen, 2023)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10683050/' },
+      { title: 'Menstrual cycle-related hormonal fluctuations in ADHD (MDPI, 2025)', url: 'https://www.mdpi.com/2077-0383/15/1/121' },
+    ],
+    taskTypes: ['creative', 'long', 'study'],
+    blockMinutes: 50,
+  },
+  creativeWindow: {
+    name: 'Cognitive Window',
+    tagline: 'Your peak focus window — good for the work that matters most today.',
+    detail: 'Roughly 4.5–7 hours after waking is where working memory and processing speed tend to peak. Because ADHD\'s circadian phase runs ~90 minutes later than neurotypical, this window often arrives in the early-to-mid afternoon rather than mid-morning. Generative and analytical work fits here — drafting, problem-solving, anything requiring sustained executive function.',
+    sources: [
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+      { title: 'Time of day and chronotype in cognitive function (Blatter & Cajochen, 2023)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10683050/' },
+    ],
+    taskTypes: ['creative', 'long', 'study'],
+    blockMinutes: 45,
+  },
+  constrainedPeak: {
+    name: 'Constrained Peak',
+    tagline: 'Focus window is open, but hormonal support is lower — shorter blocks help.',
+    detail: 'This is your cognitive peak circadian window, but lower estrogen and progesterone are reducing dopamine availability — which ADHD already affects. Research shows stimulant medication is measurably less effective in the pre-menstrual phase, meaning the gap between intention and execution is wider than usual. You can still do meaningful work; it may just cost more friction than on other days. That\'s documented biology, not a personal failing.',
+    sources: [
+      { title: 'ADHD and the menstrual cycle: theory and evidence (Petrovic et al., 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10872410/' },
+      { title: 'Female-specific pharmacotherapy in ADHD: premenstrual adjustment (PMC, 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10751335/' },
+    ],
+    taskTypes: ['creative', 'study', 'short'],
+    blockMinutes: 25,
+  },
+  microSprint: {
+    name: 'Micro-Sprint Mode',
+    tagline: 'Short bursts tend to work better than long blocks when attention is fragmented.',
+    detail: 'When attention is scattered, longer blocks often produce frustration rather than output — not because you can\'t do the work, but because the scope makes starting harder. Shorter, timed sprints (15–20 min) with one clear outcome lower the initiation cost. Switching between tasks when momentum stalls can also help sustain engagement, since novelty activates dopamine pathways. There\'s no single right pattern — use what keeps you moving.',
+    sources: [
+      { title: 'Task switching and attention deficit hyperactivity disorder (Cepeda et al., 2000)', url: 'https://pubmed.ncbi.nlm.nih.gov/10885680/' },
+      { title: 'The paradox of task switching in ADHD (OSF preprint)', url: 'https://sciety.org/articles/activity/10.31234/osf.io/mhrba_v1' },
+    ],
+    taskTypes: ['short', 'admin', 'capture'],
+    blockMinutes: 15,
+  },
+  lowBattery: {
+    name: 'Low Battery',
+    tagline: 'Working with reduced capacity — protect your energy, not your to-do list.',
+    detail: 'When energy is low, pushing harder rarely works and often makes things worse. Lighter cognitive tasks, short blocks, and movement breaks tend to preserve more functional capacity than forcing through. A 10-minute movement break has documented acute benefits for ADHD attention — often more than an equivalent amount of sitting and trying. Capture is almost always available; deep work usually isn\'t today, and that\'s a real constraint not a character flaw.',
+    sources: [
+      { title: 'Physical exercise in ADHD: evidence and implications (Mehren et al., 2020)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC6945516/' },
+      { title: 'Effects of acute exercise on executive functions in adults with ADHD (ScienceDirect, 2026)', url: 'https://www.sciencedirect.com/science/article/abs/pii/S1469029226000282' },
+    ],
+    taskTypes: ['capture', 'short', 'movement', 'admin'],
+    blockMinutes: 10,
+  },
+  heavyDay: {
+    name: 'Heavy Day',
+    tagline: 'Low energy and lower hormonal support today — one meaningful thing is enough.',
+    detail: 'The combination of low energy and the pre-menstrual hormonal shift — falling estrogen and progesterone — is documented as one of the harder ADHD days. Research shows stimulant medication is less effective in this phase because progesterone interferes with its action, which means the gap between what you intend to do and what actually happens is wider than usual. This isn\'t a willpower issue. One meaningful thing today is genuinely enough.',
+    sources: [
+      { title: 'ADHD and the menstrual cycle: theory and evidence (Petrovic et al., 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10872410/' },
+      { title: 'Reproductive steroids and ADHD symptoms across the menstrual cycle (Robison et al., 2018)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5803442/' },
+      { title: 'Female-specific pharmacotherapy in ADHD: premenstrual adjustment (PMC, 2024)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10751335/' },
+    ],
+    taskTypes: ['short', 'capture', 'movement'],
+    blockMinutes: 10,
+  },
+  recoveryTrough: {
+    name: 'Alertness Trough',
+    tagline: 'A natural dip — movement or rest here recovers more than pushing through.',
+    detail: 'Roughly 7–9 hours after waking, alertness naturally dips — this is a circadian pattern driven by biology, not sleep debt or weakness. It happens even without eating. Research shows a 10-minute movement break at this point restores ADHD-relevant attention for roughly 45–60 minutes afterward, more reliably than forcing cognitive work. A short rest is also legitimate and doesn\'t hurt night sleep.',
+    sources: [
+      { title: 'Physical exercise in ADHD: evidence and implications (Mehren et al., 2020)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC6945516/' },
+      { title: 'Effects of acute exercise on executive functions in adults with ADHD (ScienceDirect, 2026)', url: 'https://www.sciencedirect.com/science/article/abs/pii/S1469029226000282' },
+    ],
+    taskTypes: ['movement', 'admin', 'short', 'capture'],
+    blockMinutes: 15,
+  },
+  secondWindStrong: {
+    name: 'Second Wind — Strong',
+    tagline: 'Body temp peak and good hormonal support — structured work fits well here.',
+    detail: 'Core body temperature and motor coordination peak roughly 9–12 hours after waking. With estrogen currently supporting dopamine, this is a reliable window for revision, language study, structured analytical work, and anything requiring sustained precision. Different from the cognitive peak earlier — less raw generative power, more organized and sustained.',
+    sources: [
+      { title: 'Time of day and chronotype in cognitive function (Blatter & Cajochen, 2023)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10683050/' },
+      { title: 'Menstrual cycle-related hormonal fluctuations in ADHD (MDPI, 2025)', url: 'https://www.mdpi.com/2077-0383/15/1/121' },
+    ],
+    taskTypes: ['study', 'admin', 'creative'],
+    blockMinutes: 35,
+  },
+  secondWind: {
+    name: 'Second Wind',
+    tagline: 'A reliable window for structured tasks — revision, language, admin.',
+    detail: 'Body temperature peaks roughly 9–12 hours after waking, along with motor coordination. This is a good window for revision, language practice, admin, and structured review — not a second cognitive peak, but a reliable period of organized, sustained alertness. Many ADHD users find afternoon and evening their most functional window, which aligns with the ~90-minute circadian phase delay.',
+    sources: [
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+      { title: 'Time of day and chronotype in cognitive function (Blatter & Cajochen, 2023)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10683050/' },
+    ],
+    taskTypes: ['study', 'admin', 'capture'],
+    blockMinutes: 30,
+  },
+  settleIn: {
+    name: 'Settling',
+    tagline: 'Melatonin is starting to rise — a natural time to wrap up and capture.',
+    detail: 'About 12–15 hours after waking, melatonin begins rising and core body temperature starts falling. Generative cognitive work becomes harder to sustain, and this is a natural transition point. Capture, planning tomorrow, and light review all fit well. Evening hyperfocus is a documented ADHD pattern — if that\'s relevant to you, this is a useful moment to note a stopping intention before it kicks in.',
+    sources: [
+      { title: 'Hyperfocus: the forgotten frontier of attention (Ashinoff & Abu-Akel, 2021)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC7851038/' },
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+    ],
+    taskTypes: ['capture', 'admin', 'short'],
+    blockMinutes: 15,
+  },
+  restSignal: {
+    name: 'Rest Window',
+    tagline: 'Melatonin is active — your body is signaling wind-down.',
+    detail: 'Melatonin elevation signals sleep onset and is a biological cue, not a suggestion. Sleep consolidates memory and resets the dopamine and norepinephrine systems that ADHD affects daily. If you\'re still working now, the return diminishes quickly and the cost to tomorrow\'s functional capacity is real.',
+    sources: [
+      { title: 'ADHD as a circadian rhythm disorder (Kooij et al., 2025)', url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC12728042/' },
+    ],
+    taskTypes: ['short', 'capture'],
+    blockMinutes: 10,
+  },
+};
+
+function getActiveProfile(hoursAwake, healthState, cycleInfo) {
+  if (hoursAwake === null || hoursAwake === undefined) return null;
+  const win = getCircadianWindowKey(hoursAwake);
+  const cycleLow = cycleInfo?.phase === 'menstrual' || cycleInfo?.phase === 'luteal-late';
+  const cycleHigh = cycleInfo?.phase === 'follicular' || cycleInfo?.phase === 'ovulatory';
+
+  if (win === 'melatonin') return ADHD_PROFILES.restSignal;
+  if (win === 'windDown')  return ADHD_PROFILES.settleIn;
+
+  if (healthState === 'drained') return cycleLow ? ADHD_PROFILES.heavyDay : ADHD_PROFILES.lowBattery;
+  if (healthState === 'scattered') return ADHD_PROFILES.microSprint;
+
+  // Steady below here
+  if (win === 'trough')     return ADHD_PROFILES.recoveryTrough;
+  if (win === 'car')        return cycleLow ? ADHD_PROFILES.gentleStart : ADHD_PROFILES.softStart;
+  if (win === 'rising')     return cycleHigh ? ADHD_PROFILES.strongInput : cycleLow ? ADHD_PROFILES.lightInput : ADHD_PROFILES.risingCapacity;
+  if (win === 'peak')       return cycleHigh ? ADHD_PROFILES.highCapacity : cycleLow ? ADHD_PROFILES.constrainedPeak : ADHD_PROFILES.creativeWindow;
+  if (win === 'secondWind') return cycleHigh ? ADHD_PROFILES.secondWindStrong : ADHD_PROFILES.secondWind;
+  return ADHD_PROFILES.creativeWindow;
+}
+
+// Infer what type of task this is from its title and duration.
+// Used for subtle fit indicators — not prescriptive, just informational.
+function inferTaskTypes(task) {
+  const t = task.title.toLowerCase();
+  const types = new Set();
+  if (/writ|draft|creat|essay|chapter|blog|post|story|compost/.test(t)) types.add('creative');
+  if (/spanish|french|german|japanese|language|vocab|grammar/.test(t)) types.add('study');
+  if (/read|study|research|annotate|craft|input|primer/.test(t)) types.add('study');
+  if (/admin|email|invoice|call|meeting|schedule|review|plan|sweep|setup|system/.test(t)) types.add('admin');
+  if (/capture|note|idea|journal|jot|sentence/.test(t)) types.add('capture');
+  if (/walk|run|mov|stretch|exercise|rehab|yoga|swim|bike|body|toe|legs up|upright/.test(t)) types.add('movement');
+  if (task.minutes && task.minutes <= 15) types.add('short');
+  if (task.minutes && task.minutes >= 30) types.add('long');
+  return types;
+}
+
+function getTaskFit(task, profile) {
+  if (!profile?.taskTypes?.length || task.done) return 0;
+  const types = inferTaskTypes(task);
+  let score = 0;
+  for (const type of types) {
+    if (profile.taskTypes.includes(type)) score++;
+  }
+  return score;
+}
+
 function getDynamicLightRec(hour, weather, healthState, cycleInfo) {
   if (!weather) return null;
   const uv = weather.uvNow;
@@ -600,6 +840,8 @@ export default function App() {
   const [mindAction, setMindAction] = useState('');
   const [dayCheck, setDayCheck] = useState(null); // null | 'better' | 'mildly-worse' | 'clearly-worse'
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [wakeHour, setWakeHour] = useState(null); // decimal clock hour, set during morning check-in
+  const [profileExpanded, setProfileExpanded] = useState(false);
   const [authForm, setAuthForm] = useState({
     displayName: '',
     email: '',
@@ -1007,7 +1249,7 @@ export default function App() {
   }
 
 
-  function completeFirstSetup() {
+  async function completeFirstSetup() {
     const normalized = settings.phases.map((phase) => {
       const minutes = Number(setupDraft[phase.id]);
       return {
@@ -1015,17 +1257,25 @@ export default function App() {
         defaultMinutes: Number.isFinite(minutes) && minutes > 0 ? minutes : phase.defaultMinutes,
       };
     });
-    setSettings((current) => ({
-      ...current,
+    const nextSettings = {
+      ...settings,
       phases: normalized,
       preferences: {
-        ...(current.preferences ?? {}),
+        ...(settings.preferences ?? {}),
         setupComplete: true,
         onboardingComplete: true,
       },
-    }));
+    };
+    setSettings(nextSettings);
     setSiteView('planner');
     setPhaseRunning(false);
+    // Save immediately — don't rely on the debounce so a fast refresh doesn't lose onboardingComplete
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify(nextSettings) });
+      setSaveStatus('All changes saved');
+    } catch (err) {
+      setSaveStatus(err.message);
+    }
   }
 
   function updatePhaseDefault(phaseId, nextValue) {
@@ -1148,6 +1398,8 @@ export default function App() {
     : null;
   const cycleTip = getCycleTip(cycleInfo);
   const goals = settings.preferences?.goals ?? [];
+  const hoursAwake = wakeHour !== null ? Math.max(0, contextHour - wakeHour) : null;
+  const activeProfile = getActiveProfile(hoursAwake, settings.healthState, cycleInfo);
   const proactiveTask = getProactiveTask(contextHour, settings.healthState, cycleInfo, goals, settings.phases, settings.activePhaseId);
 
   return (
@@ -1453,13 +1705,42 @@ export default function App() {
                       <span className="context-weather-inline muted-copy">Loading…</span>
                     ) : null}
                   </div>
-                  <div className="context-strip-circadian">
-                    <strong>{circadian.label}:</strong>{' '}
-                    {circadian.cognitive ?? circadian.body}
-                  </div>
+
+                  {/* Profile: shown when wake time has been set */}
+                  {activeProfile ? (
+                    <div className="profile-block">
+                      <div className="profile-header" onClick={() => setProfileExpanded((x) => !x)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && setProfileExpanded((x) => !x)}>
+                        <div>
+                          <span className="profile-name">{activeProfile.name}</span>
+                          <span className="profile-tagline"> — {activeProfile.tagline}</span>
+                        </div>
+                        <span className="profile-chevron">{profileExpanded ? '▾' : '▸'}</span>
+                      </div>
+                      {profileExpanded && (
+                        <div className="profile-detail">
+                          <p className="profile-detail-text">{activeProfile.detail}</p>
+                          {activeProfile.sources.length > 0 && (
+                            <div className="profile-sources">
+                              {activeProfile.sources.map((s) => (
+                                <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="profile-source-link">
+                                  {s.title}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="context-strip-circadian">
+                      <strong>{circadian.label}:</strong>{' '}
+                      {circadian.cognitive ?? circadian.body}
+                    </div>
+                  )}
+
                   {cycleTip && (
                     <div className="context-cycle-tip">
-                      {cycleInfo.label} day {cycleInfo.day} — {cycleTip}
+                      {cycleInfo.label} · day {cycleInfo.day} — {cycleTip}
                     </div>
                   )}
                   {lightRec && (
@@ -1503,20 +1784,46 @@ export default function App() {
             {!checkInDone && (
               <div className="card check-in-card">
                 <div className="check-in-header">
-                  <p className="card-label">Morning check-in</p>
+                  <p className="card-label">Check-in</p>
                   <button className="ghost small" onClick={() => setCheckInDone(true)} aria-label="Skip check-in">✕</button>
                 </div>
-                <p className="check-in-prompt">Body scan — how does today feel?</p>
+
+                <p className="check-in-prompt">When did you wake up?</p>
                 <div className="day-check-options">
-                  <button className={`day-check-btn ${dayCheck === 'better' ? 'selected' : ''}`} onClick={() => handleDayCheck('better')}>Better / Same</button>
-                  <button className={`day-check-btn warn ${dayCheck === 'mildly-worse' ? 'selected' : ''}`} onClick={() => handleDayCheck('mildly-worse')}>Mildly Worse</button>
-                  <button className={`day-check-btn danger ${dayCheck === 'clearly-worse' ? 'selected' : ''}`} onClick={() => handleDayCheck('clearly-worse')}>Clearly Worse</button>
+                  {[
+                    { label: 'Before 6am', value: 5.5 },
+                    { label: '6–7am', value: 6.5 },
+                    { label: '7–8am', value: 7.5 },
+                    { label: '8–9am', value: 8.5 },
+                    { label: '9–10am', value: 9.5 },
+                    { label: 'After 10am', value: 10.5 },
+                  ].map(({ label, value }) => (
+                    <button
+                      key={label}
+                      className={`day-check-btn ${wakeHour === value ? 'selected' : ''}`}
+                      onClick={() => setWakeHour(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-                {dayCheck === 'mildly-worse' && <p className="decision-note warn">Session day — reduce upright block 2 min, extra legs up, consider cold face immersion.</p>}
-                {dayCheck === 'clearly-worse' && <p className="decision-note danger">Integration day. Morning regulation only. Legs up liberally.</p>}
-                {dayCheck && (
+
+                {wakeHour !== null && (
                   <>
-                    <p className="check-in-prompt" style={{ marginTop: '0.75rem' }}>How is your attention right now?</p>
+                    <p className="check-in-prompt" style={{ marginTop: '0.85rem' }}>Body scan — how does today feel?</p>
+                    <div className="day-check-options">
+                      <button className={`day-check-btn ${dayCheck === 'better' ? 'selected' : ''}`} onClick={() => handleDayCheck('better')}>Good / Same</button>
+                      <button className={`day-check-btn warn ${dayCheck === 'mildly-worse' ? 'selected' : ''}`} onClick={() => handleDayCheck('mildly-worse')}>Mildly off</button>
+                      <button className={`day-check-btn danger ${dayCheck === 'clearly-worse' ? 'selected' : ''}`} onClick={() => handleDayCheck('clearly-worse')}>Rough day</button>
+                    </div>
+                    {dayCheck === 'mildly-worse' && <p className="decision-note warn">Consider reducing long blocks and adding a movement break earlier in the day.</p>}
+                    {dayCheck === 'clearly-worse' && <p className="decision-note danger">Lighter day. Shorter blocks, more breaks, no pressure on deep work.</p>}
+                  </>
+                )}
+
+                {wakeHour !== null && dayCheck && (
+                  <>
+                    <p className="check-in-prompt" style={{ marginTop: '0.85rem' }}>How is your attention right now?</p>
                     <div className="health-grid">
                       {HEALTH_OPTIONS.map((option) => (
                         <button key={option.key} className={`health-option ${settings.healthState === option.key ? 'selected' : ''}`} onClick={() => setSettingsPatch({ healthState: option.key })}>
@@ -1524,15 +1831,8 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    <p className="recommendation">{recommendation}</p>
-                    {(() => {
-                      const modeName = getRecommendedWritingMode(activePhase.name, settings.healthState);
-                      const mode = WRITING_MODES[modeName];
-                      if (!mode) return null;
-                      return <p className="recommendation">Writing mode: <strong>{modeName}</strong> — {mode.counts}</p>;
-                    })()}
-                    <button className="secondary" style={{ marginTop: '0.75rem' }} onClick={() => setCheckInDone(true)}>
-                      Start the day →
+                    <button className="secondary" style={{ marginTop: '0.85rem' }} onClick={() => setCheckInDone(true)}>
+                      Into the day
                     </button>
                   </>
                 )}
@@ -1617,8 +1917,9 @@ export default function App() {
                         const timerSeconds = timer?.seconds ?? 0;
                         const isEditing = editingTaskId === task.id;
 
+                        const taskFit = getTaskFit(task, activeProfile);
                         return (
-                          <article key={task.id} className={`task-row ${task.done ? 'done' : ''} ${isEditing ? 'editing' : ''}`}>
+                          <article key={task.id} className={`task-row ${task.done ? 'done' : ''} ${isEditing ? 'editing' : ''} ${taskFit > 0 && !task.done ? 'fit-hint' : ''}`}>
                             {isEditing ? (
                               <form className="task-edit-form" onSubmit={(e) => { e.preventDefault(); saveEditTask(phase.id, task.id); }}>
                                 <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} autoFocus />
