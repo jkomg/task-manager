@@ -1007,7 +1007,7 @@ export default function App() {
   }
 
 
-  function completeFirstSetup() {
+  async function completeFirstSetup() {
     const normalized = settings.phases.map((phase) => {
       const minutes = Number(setupDraft[phase.id]);
       return {
@@ -1015,17 +1015,25 @@ export default function App() {
         defaultMinutes: Number.isFinite(minutes) && minutes > 0 ? minutes : phase.defaultMinutes,
       };
     });
-    setSettings((current) => ({
-      ...current,
+    const nextSettings = {
+      ...settings,
       phases: normalized,
       preferences: {
-        ...(current.preferences ?? {}),
+        ...(settings.preferences ?? {}),
         setupComplete: true,
         onboardingComplete: true,
       },
-    }));
+    };
+    setSettings(nextSettings);
     setSiteView('planner');
     setPhaseRunning(false);
+    // Save immediately — don't rely on the debounce so a fast refresh doesn't lose onboardingComplete
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify(nextSettings) });
+      setSaveStatus('All changes saved');
+    } catch (err) {
+      setSaveStatus(err.message);
+    }
   }
 
   function updatePhaseDefault(phaseId, nextValue) {
