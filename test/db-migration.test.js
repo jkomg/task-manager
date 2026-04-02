@@ -70,6 +70,10 @@ test('migrates a direct legacy database with sessions missing expires_at', () =>
       FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
       FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
     );
+    INSERT INTO users (id, email, password_hash, display_name, settings_json, created_at)
+    VALUES ('user-1', 'alex@example.com', 'hash', 'Alex', '{}', '2026-01-01T00:00:00.000Z');
+    INSERT INTO sessions (token, user_id, created_at)
+    VALUES ('session-1', 'user-1', '2026-01-01T00:00:00.000Z');
   `);
   db.close();
 
@@ -90,12 +94,19 @@ test('migrates a direct legacy database with sessions missing expires_at', () =>
   );
   assert.deepEqual(sessionColumns, ['token', 'user_id', 'created_at', 'expires_at']);
   assert.equal(tableSql.includes('users_legacy'), false);
+  const migratedSession = migrated.prepare('SELECT created_at, expires_at FROM sessions WHERE token = ?').get('session-1');
+  assert.ok(migratedSession.expires_at);
+  assert.equal(
+    migratedSession.expires_at,
+    new Date(Date.parse(migratedSession.created_at) + 1000 * 60 * 60 * 24 * 30).toISOString()
+  );
   migrated.close();
 });
 
 test('repairs rewritten foreign-key tables even when sessions lacks expires_at', () => {
   const { root, dbPath } = createTempDb('focusflow-legacy-repair');
   const db = new Database(dbPath);
+  db.pragma('foreign_keys = OFF');
   db.exec(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -137,6 +148,13 @@ test('repairs rewritten foreign-key tables even when sessions lacks expires_at',
       FOREIGN KEY (actor_user_id) REFERENCES users_legacy(id) ON DELETE SET NULL,
       FOREIGN KEY (target_user_id) REFERENCES users_legacy(id) ON DELETE SET NULL
     );
+    INSERT INTO users (
+      id, email, password_hash, display_name, role, auth_provider, auth_subject, account_status, settings_json, created_at, last_login_at
+    ) VALUES (
+      'user-2', 'sam@example.com', 'hash', 'Sam', 'user', 'local', 'sam@example.com', 'active', '{}', '2026-02-01T00:00:00.000Z', NULL
+    );
+    INSERT INTO sessions (token, user_id, created_at)
+    VALUES ('session-2', 'user-2', '2026-02-01T00:00:00.000Z');
   `);
   db.close();
 
@@ -152,5 +170,11 @@ test('repairs rewritten foreign-key tables even when sessions lacks expires_at',
 
   assert.deepEqual(sessionColumns, ['token', 'user_id', 'created_at', 'expires_at']);
   assert.equal(tableSql.includes('users_legacy'), false);
+  const repairedSession = repaired.prepare('SELECT created_at, expires_at FROM sessions WHERE token = ?').get('session-2');
+  assert.ok(repairedSession.expires_at);
+  assert.equal(
+    repairedSession.expires_at,
+    new Date(Date.parse(repairedSession.created_at) + 1000 * 60 * 60 * 24 * 30).toISOString()
+  );
   repaired.close();
 });

@@ -1,39 +1,39 @@
 @import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap');
 
 :root {
-  color-scheme: dark;
-  font-family: "Nunito", "Avenir Next", "Segoe UI", sans-serif;
+  color-scheme: light dark;
+  font-family: "Nunito", ui-rounded, "SF Pro Rounded", "Avenir Next", "Segoe UI", sans-serif;
   line-height: 1.45;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --bg-0: #0d1520;
-  --bg-1: #101a2a;
-  --surface: #162032;
-  --surface-raised: #1c2d42;
-  --surface-strong: #1a2840;
-  --ink: #ddeaf6;
-  --muted: #6a90a8;
-  --line: rgba(80, 140, 180, 0.18);
-  --primary: #5aaac8;
-  --primary-strong: #4a92b0;
-  --secondary: #6bbfbf;
-  --secondary-strong: #57a8a8;
-  --ghost: rgba(60, 130, 170, 0.12);
+  --bg-0: #f2f7fb;
+  --bg-1: #e6eef6;
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-raised: rgba(255, 255, 255, 0.9);
+  --surface-strong: #f7fbff;
+  --ink: #183244;
+  --muted: #5e7a8d;
+  --line: rgba(72, 118, 150, 0.18);
+  --primary: #4f8fb5;
+  --primary-strong: #3e7c9f;
+  --secondary: #67aba4;
+  --secondary-strong: #4f938d;
+  --ghost: rgba(79, 143, 181, 0.08);
   --danger: #e06868;
-  --warm: #e07b5c;
-  --warm-light: rgba(224, 123, 92, 0.16);
-  --warm-border: rgba(224, 123, 92, 0.3);
+  --warm: #c77961;
+  --warm-light: rgba(199, 121, 97, 0.14);
+  --warm-border: rgba(199, 121, 97, 0.26);
 
   /* Phase accent colors — borrowed from job hunt badge system */
   --phase-1: #5aaac8;       /* Quiet Window → blue */
   --phase-1-dim: rgba(90, 170, 200, 0.13);
   --phase-2: #4cb896;       /* Activation Bridge → teal-green */
   --phase-2-dim: rgba(76, 184, 150, 0.13);
-  --phase-3: #9878d0;       /* Deep Window → purple */
-  --phase-3-dim: rgba(152, 120, 208, 0.13);
+  --phase-3: #7f8ed1;       /* Deep Window → soft indigo */
+  --phase-3-dim: rgba(127, 142, 209, 0.13);
   --phase-4: #e09060;       /* Body + Recovery → orange */
   --phase-4-dim: rgba(224, 144, 96, 0.13);
   --phase-5: #d4a855;       /* Afternoon Drift → gold */
@@ -46,6 +46,29 @@
   --health-scattered-dim: rgba(240, 192, 96, 0.14);
   --health-drained: #e06868;
   --health-drained-dim: rgba(224, 104, 104, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-0: #0d1520;
+    --bg-1: #101a2a;
+    --surface: #162032;
+    --surface-raised: #1c2d42;
+    --surface-strong: #1a2840;
+    --ink: #ddeaf6;
+    --muted: #6a90a8;
+    --line: rgba(80, 140, 180, 0.18);
+    --primary: #5aaac8;
+    --primary-strong: #4a92b0;
+    --secondary: #6bbfbf;
+    --secondary-strong: #57a8a8;
+    --ghost: rgba(60, 130, 170, 0.12);
+    --warm: #e07b5c;
+    --warm-light: rgba(224, 123, 92, 0.16);
+    --warm-border: rgba(224, 123, 92, 0.3);
+    --phase-3: #9878d0;
+    --phase-3-dim: rgba(152, 120, 208, 0.13);
+  }
 }
 
 * {
@@ -62,6 +85,7 @@ body {
     radial-gradient(ellipse at 85% 100%, rgba(76, 184, 150, 0.07) 0, transparent 50%),
     radial-gradient(ellipse at 50% 50%, rgba(152, 120, 208, 0.04) 0, transparent 60%),
     linear-gradient(165deg, var(--bg-0) 0%, var(--bg-1) 100%);
+  background-attachment: fixed;
 }
 
 #root {
@@ -83,7 +107,7 @@ input {
   border: 1px solid var(--line);
   padding: 0.72rem 0.82rem;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
 }
 
 input::placeholder {
@@ -213,7 +237,8 @@ button.small {
   border: 1px solid var(--line);
   background: var(--surface);
   padding: 1rem;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 10px 30px rgba(28, 51, 74, 0.12);
 }
 
 .topbar-card,
