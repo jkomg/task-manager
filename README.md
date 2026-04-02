@@ -33,6 +33,17 @@ npm install
 npm run dev
 ```
 
+## Admin Access
+
+- Local admin access is controlled by the `ADMIN_EMAILS` environment variable.
+- Example: `ADMIN_EMAILS=you@example.com,teammate@example.com`
+- Matching users are elevated to the `admin` role on register/login/session refresh.
+- Admins get an in-app Admin page for:
+  - toggling feature flags
+  - viewing recent audit/error events
+  - searching users
+  - resetting a test user's saved state and sessions
+
 ## Local Data
 
 - SQLite database path: `data/focus-flow.db`
