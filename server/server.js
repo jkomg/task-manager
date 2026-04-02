@@ -7,6 +7,7 @@ import { buildDefaultState, normalizeState } from './defaultState.js';
 const app = express();
 const PORT = 3001;
 const SESSION_COOKIE = 'focus_flow_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const WEATHER_CODE_LABELS = {
   0: 'clear',
   1: 'mostly clear',
@@ -38,7 +39,14 @@ const WEATHER_CODE_LABELS = {
   99: 'thunderstorms with hail',
 };
 
+app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 
 function parseCookies(cookieHeader = '') {
   return Object.fromEntries(
@@ -50,7 +58,11 @@ function parseCookies(cookieHeader = '') {
         const separatorIndex = part.indexOf('=');
         const key = separatorIndex >= 0 ? part.slice(0, separatorIndex) : part;
         const value = separatorIndex >= 0 ? part.slice(separatorIndex + 1) : '';
-        return [key, decodeURIComponent(value)];
+        try {
+          return [key, decodeURIComponent(value)];
+        } catch {
+          return [key, value];
+        }
       })
   );
 }
@@ -58,7 +70,7 @@ function parseCookies(cookieHeader = '') {
 function setSessionCookie(res, token) {
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Priority=High`
   );
 }
 
@@ -74,6 +86,26 @@ function publicUser(row) {
   };
 }
 
+function parseStoredSettings(settingsJson) {
+  try {
+    return normalizeState(JSON.parse(settingsJson));
+  } catch {
+    return buildDefaultState();
+  }
+}
+
+function purgeExpiredSessions(nowIso = new Date().toISOString()) {
+  db.prepare('DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at <= ?').run(nowIso);
+}
+
+function createSession(userId) {
+  const createdAt = new Date();
+  const token = crypto.randomUUID();
+  db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, userId, createdAt.toISOString(), new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString());
+  return token;
+}
+
 function requireAuth(req, res, next) {
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies[SESSION_COOKIE];
@@ -82,14 +114,17 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
 
+  purgeExpiredSessions();
+  const nowIso = new Date().toISOString();
   const row = db
     .prepare(
       `SELECT users.id, users.email, users.display_name, users.settings_json
        FROM sessions
        JOIN users ON users.id = sessions.user_id
-       WHERE sessions.token = ?`
+       WHERE sessions.token = ?
+         AND (sessions.expires_at IS NULL OR sessions.expires_at > ?)`
     )
-    .get(token);
+    .get(token, nowIso);
 
   if (!row) {
     clearSessionCookie(res);
@@ -165,9 +200,7 @@ app.post('/api/auth/register', (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(id, email, passwordHash, displayName, settings, new Date().toISOString());
 
-  const token = crypto.randomUUID();
-  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
-    .run(token, id, new Date().toISOString());
+  const token = createSession(id);
 
   setSessionCookie(res, token);
 
@@ -193,15 +226,13 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
-  const token = crypto.randomUUID();
-  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
-    .run(token, user.id, new Date().toISOString());
+  const token = createSession(user.id);
 
   setSessionCookie(res, token);
 
   return res.json({
     user: publicUser(user),
-    settings: normalizeState(JSON.parse(user.settings_json)),
+    settings: parseStoredSettings(user.settings_json),
   });
 });
 
@@ -214,7 +245,7 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
 app.get('/api/auth/session', requireAuth, (req, res) => {
   res.json({
     user: publicUser(req.user),
-    settings: normalizeState(JSON.parse(req.user.settings_json)),
+    settings: parseStoredSettings(req.user.settings_json),
   });
 });
 
@@ -230,7 +261,7 @@ app.put('/api/settings', requireAuth, (req, res) => {
 app.get('/api/context/brief', requireAuth, async (req, res) => {
   const latitude = Number(req.query.lat);
   const longitude = Number(req.query.lon);
-  const persisted = normalizeState(JSON.parse(req.user.settings_json));
+  const persisted = parseStoredSettings(req.user.settings_json);
   const timeZone = String(req.query.timeZone ?? req.query.tz ?? persisted.preferences?.timeZone ?? 'UTC');
   const timeDetails = getTimeDetails(timeZone);
 
@@ -287,6 +318,14 @@ app.get('/api/context/brief', requireAuth, async (req, res) => {
       weather: null,
     });
   }
+});
+
+app.use((error, _req, res, _next) => {
+  console.error(error);
+  if (res.headersSent) {
+    return;
+  }
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
 app.listen(PORT, () => {

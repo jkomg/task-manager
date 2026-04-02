@@ -299,6 +299,31 @@ function formatClockFromIso(iso, timeZone) {
   }
 }
 
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+function getDateKey(timeZone = getBrowserTimeZone()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+    return `${year}-${month}-${day}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function storageKeyForUser(userId, name) {
+  return `focusflow:${userId ?? 'guest'}:${name}`;
+}
+
 function circadianWindow(hour) {
   if (hour >= 5 && hour < 8) return {
     label: 'Cortisol Awakening Response',
@@ -831,10 +856,9 @@ export default function App() {
   const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [taskTimers, setTaskTimers] = useState({});
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const [checkInDone, setCheckInDone] = useState(
-    () => localStorage.getItem('checkInDone') === todayKey
-  );
+  const browserTimeZone = getBrowserTimeZone();
+  const todayKey = getDateKey(settings.preferences?.timeZone || browserTimeZone);
+  const [checkInDone, setCheckInDone] = useState(false);
   const [collapsedPhases, setCollapsedPhases] = useState(
     () => new Set(DEFAULT_SETTINGS.phases.map((p) => p.id).filter((id) => id !== DEFAULT_SETTINGS.activePhaseId))
   );
@@ -848,13 +872,9 @@ export default function App() {
   const [locationStatus, setLocationStatus] = useState('');
   const [mindContext, setMindContext] = useState({ loading: false, data: null, error: '' });
   const [mindAction, setMindAction] = useState('');
-  const [dayCheck, setDayCheck] = useState(
-    () => localStorage.getItem('dayCheck_' + new Date().toISOString().slice(0, 10)) ?? null
-  );
+  const [dayCheck, setDayCheck] = useState(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [wakeHour, setWakeHour] = useState(
-    () => { const v = localStorage.getItem('wakeHour_' + new Date().toISOString().slice(0, 10)); return v !== null ? Number(v) : null; }
-  );
+  const [wakeHour, setWakeHour] = useState(null);
   const [profileExpanded, setProfileExpanded] = useState(false);
   const [authForm, setAuthForm] = useState({
     displayName: '',
@@ -926,6 +946,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) {
+      setCheckInDone(false);
+      setDayCheck(null);
+      setWakeHour(null);
+      setRoutineOverridden(false);
+      return;
+    }
+
+    const checkInKey = storageKeyForUser(user.id, `checkInDone:${todayKey}`);
+    const dayCheckKey = storageKeyForUser(user.id, `dayCheck:${todayKey}`);
+    const wakeHourKey = storageKeyForUser(user.id, `wakeHour:${todayKey}`);
+    const storedWakeHour = window.localStorage.getItem(wakeHourKey);
+    const parsedWakeHour = storedWakeHour === null ? null : Number(storedWakeHour);
+
+    setCheckInDone(window.localStorage.getItem(checkInKey) === 'true');
+    setDayCheck(window.localStorage.getItem(dayCheckKey) ?? null);
+    setWakeHour(Number.isFinite(parsedWakeHour) ? parsedWakeHour : null);
+    setRoutineOverridden(false);
+  }, [todayKey, user]);
+
+  useEffect(() => {
     if (!activePhase) {
       return;
     }
@@ -994,7 +1035,6 @@ export default function App() {
     if (!user) {
       return;
     }
-    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     if (settings.preferences?.timeZone !== browserTimeZone) {
       setSettings((current) => ({
         ...current,
@@ -1177,7 +1217,10 @@ export default function App() {
   }
 
   function addSuggestionTask(phaseId, suggestion) {
-    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(suggestion.title, null, 'oneoff')]);
+    updateTasksInPhase(phaseId, (tasks) => [
+      ...tasks,
+      createTask(suggestion.title, suggestion.minutes ?? null, 'oneoff'),
+    ]);
   }
 
   function addTemplateTaskToPhase(phaseId, title) {
@@ -1359,18 +1402,18 @@ export default function App() {
 
   function handleCompleteCheckin() {
     triggerDailyReset();
-    localStorage.setItem('checkInDone', todayKey);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `checkInDone:${todayKey}`), 'true');
     setCheckInDone(true);
   }
 
   function handleSkipCheckin() {
     triggerDailyReset();
-    localStorage.setItem('checkInDone', todayKey);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `checkInDone:${todayKey}`), 'true');
     setCheckInDone(true);
   }
 
   function handleDayCheck(result) {
-    localStorage.setItem('dayCheck_' + todayKey, result);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `dayCheck:${todayKey}`), result);
     setDayCheck(result);
     setRoutineOverridden(false);
     const nextType = result === 'clearly-worse' ? 'integration' : 'session';
@@ -1893,7 +1936,10 @@ export default function App() {
                     <button
                       key={label}
                       className={`day-check-btn ${wakeHour === value ? 'selected' : ''}`}
-                      onClick={() => { localStorage.setItem('wakeHour_' + todayKey, String(value)); setWakeHour(value); }}
+                      onClick={() => {
+                        window.localStorage.setItem(storageKeyForUser(user?.id, `wakeHour:${todayKey}`), String(value));
+                        setWakeHour(value);
+                      }}
                     >
                       {label}
                     </button>

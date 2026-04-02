@@ -22,7 +22,7 @@ docker compose up --build
 
 App URL: [http://localhost:3000](http://localhost:3000)
 
-LAN test URL: [http://192.168.1.115:3000](http://192.168.1.115:3000)
+LAN test URL: `http://<your-local-ip>:3000`
 
 API URL: `http://localhost:3001`
 
@@ -37,6 +37,7 @@ npm run dev
 
 - SQLite database path: `data/focus-flow.db`
 - Session state uses an HTTP-only cookie in the browser.
+- Local runtime artifacts should stay out of git and out of Docker build context.
 
 ## Change Management
 
