@@ -86,11 +86,15 @@ export default function App() {
     adminQuery,
     adminLoading,
     adminStatus,
+    selectedAdminUser,
     setAdminQuery,
     refreshAdminSummary,
     searchAdminUsers,
     toggleFeatureFlag,
     resetUserState,
+    inspectUser,
+    setUserAccountStatus,
+    revokeUserSessions,
   } = useAdminData({
     user,
     siteView,
@@ -723,12 +727,16 @@ export default function App() {
             adminQuery={adminQuery}
             adminLoading={adminLoading}
             adminStatus={adminStatus}
+            selectedAdminUser={selectedAdminUser}
             featureFlags={featureFlags}
             setAdminQuery={setAdminQuery}
             refreshAdminSummary={refreshAdminSummary}
             searchAdminUsers={searchAdminUsers}
             toggleFeatureFlag={toggleFeatureFlag}
             resetUserState={resetUserState}
+            inspectUser={inspectUser}
+            setUserAccountStatus={setUserAccountStatus}
+            revokeUserSessions={revokeUserSessions}
           />
         )}
 

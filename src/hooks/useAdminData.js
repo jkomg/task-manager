@@ -13,6 +13,7 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
   const [adminQuery, setAdminQuery] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminStatus, setAdminStatus] = useState('');
+  const [selectedAdminUser, setSelectedAdminUser] = useState(null);
 
   async function refreshAdminSummary() {
     if (user?.role !== 'admin') {
@@ -76,8 +77,71 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
       });
       setAdminStatus('User state reset.');
       await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
     } catch (error) {
       setAdminStatus(error.message);
+    }
+  }
+
+  async function inspectUser(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}`);
+      setSelectedAdminUser(data);
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function setUserAccountStatus(targetUserId, accountStatus) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ accountStatus }),
+      });
+      setAdminStatus(
+        data.changed
+          ? `User status set to ${data.user?.accountStatus ?? accountStatus}.`
+          : `User is already ${accountStatus}.`
+      );
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function revokeUserSessions(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/revoke-sessions`, {
+        method: 'POST',
+      });
+      setAdminStatus(
+        data.preservedCurrentSession
+          ? `Revoked ${data.revokedSessions} sessions and kept your current session.`
+          : `Revoked ${data.revokedSessions} sessions.`
+      );
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
     }
   }
 
@@ -85,6 +149,7 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     if (siteView === 'admin' && user?.role === 'admin') {
       refreshAdminSummary();
       searchAdminUsers('');
+      setSelectedAdminUser(null);
     }
   }, [siteView, user?.role]);
 
@@ -94,10 +159,14 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     adminQuery,
     adminLoading,
     adminStatus,
+    selectedAdminUser,
     setAdminQuery,
     refreshAdminSummary,
     searchAdminUsers,
     toggleFeatureFlag,
     resetUserState,
+    inspectUser,
+    setUserAccountStatus,
+    revokeUserSessions,
   };
 }

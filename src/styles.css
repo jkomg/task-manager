@@ -1832,6 +1832,13 @@ h3 {
   flex-wrap: wrap;
 }
 
+.admin-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
 .admin-event-row p,
 .admin-flag-row p,
 .admin-user-row p {
@@ -1860,4 +1867,15 @@ h3 {
 .admin-user-search input {
   flex: 1;
   min-width: 14rem;
+}
+
+@media (max-width: 640px) {
+  .admin-user-row {
+    align-items: flex-start;
+  }
+
+  .admin-action-row {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
