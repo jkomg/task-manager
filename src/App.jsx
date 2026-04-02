@@ -21,6 +21,14 @@ const ROUTINE_OPTIONS = [
   { key: 'integration', label: 'Integration Day', note: 'Lighter rhythm for regulation, review, and maintenance.' },
 ];
 
+const DEFAULT_FEATURE_FLAGS = [
+  { key: 'daily_check_in', enabled: true, description: 'Show the daily wake-time and body-state check-in flow.' },
+  { key: 'mind_context', enabled: true, description: 'Show weather, circadian context, and related recommendations.' },
+  { key: 'cycle_tracking', enabled: true, description: 'Allow cycle tracking and cycle-aware recommendations.' },
+  { key: 'task_timers', enabled: true, description: 'Allow per-task nested timers inside phases.' },
+  { key: 'proactive_suggestions', enabled: true, description: 'Show proactive task recommendations after check-in.' },
+];
+
 const TASK_LIBRARY = {
   session: {
     morning: [
@@ -297,6 +305,31 @@ function formatClockFromIso(iso, timeZone) {
   } catch {
     return 'n/a';
   }
+}
+
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+function getDateKey(timeZone = getBrowserTimeZone()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === 'year')?.value ?? '1970';
+    const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+    const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+    return `${year}-${month}-${day}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function storageKeyForUser(userId, name) {
+  return `focusflow:${userId ?? 'guest'}:${name}`;
 }
 
 function circadianWindow(hour) {
@@ -748,6 +781,18 @@ export class ErrorBoundary extends Component {
   static getDerivedStateFromError(error) {
     return { error };
   }
+  componentDidCatch(error, info) {
+    fetch('/api/logs/client-error', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'error-boundary',
+        message: String(error?.message ?? error ?? 'Unknown client error'),
+        stack: [error?.stack, info?.componentStack].filter(Boolean).join('\n\n'),
+      }),
+    }).catch(() => {});
+  }
   render() {
     if (this.state.error) {
       return (
@@ -825,16 +870,16 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [user, setUser] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [featureFlags, setFeatureFlags] = useState(DEFAULT_FEATURE_FLAGS);
   const [saveStatus, setSaveStatus] = useState('Not saved yet');
   const [siteView, setSiteView] = useState('planner');
   const [menuOpen, setMenuOpen] = useState(false);
   const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [taskTimers, setTaskTimers] = useState({});
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const [checkInDone, setCheckInDone] = useState(
-    () => localStorage.getItem('checkInDone') === todayKey
-  );
+  const browserTimeZone = getBrowserTimeZone();
+  const todayKey = getDateKey(settings.preferences?.timeZone || browserTimeZone);
+  const [checkInDone, setCheckInDone] = useState(false);
   const [collapsedPhases, setCollapsedPhases] = useState(
     () => new Set(DEFAULT_SETTINGS.phases.map((p) => p.id).filter((id) => id !== DEFAULT_SETTINGS.activePhaseId))
   );
@@ -848,14 +893,15 @@ export default function App() {
   const [locationStatus, setLocationStatus] = useState('');
   const [mindContext, setMindContext] = useState({ loading: false, data: null, error: '' });
   const [mindAction, setMindAction] = useState('');
-  const [dayCheck, setDayCheck] = useState(
-    () => localStorage.getItem('dayCheck_' + new Date().toISOString().slice(0, 10)) ?? null
-  );
+  const [dayCheck, setDayCheck] = useState(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [wakeHour, setWakeHour] = useState(
-    () => { const v = localStorage.getItem('wakeHour_' + new Date().toISOString().slice(0, 10)); return v !== null ? Number(v) : null; }
-  );
+  const [wakeHour, setWakeHour] = useState(null);
   const [profileExpanded, setProfileExpanded] = useState(false);
+  const [adminSummary, setAdminSummary] = useState({ flags: DEFAULT_FEATURE_FLAGS, metrics: null, recentEvents: [] });
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminQuery, setAdminQuery] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminStatus, setAdminStatus] = useState('');
   const [authForm, setAuthForm] = useState({
     displayName: '',
     email: '',
@@ -885,6 +931,7 @@ export default function App() {
     () => getSuggestions(settings.routineType, activePhase?.name),
     [settings.routineType, activePhase?.name]
   );
+  const isFeatureEnabled = (key) => featureFlags.find((flag) => flag.key === key)?.enabled ?? true;
 
   useEffect(() => {
     function onDocumentClick(event) {
@@ -907,6 +954,7 @@ export default function App() {
         }
         setUser(data.user);
         setSettings(data.settings);
+        setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
         setSaveStatus('All changes saved');
         loadedSettingsRef.current = true;
       })
@@ -924,6 +972,66 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setCheckInDone(false);
+      setDayCheck(null);
+      setWakeHour(null);
+      setRoutineOverridden(false);
+      return;
+    }
+
+    const checkInKey = storageKeyForUser(user.id, `checkInDone:${todayKey}`);
+    const dayCheckKey = storageKeyForUser(user.id, `dayCheck:${todayKey}`);
+    const wakeHourKey = storageKeyForUser(user.id, `wakeHour:${todayKey}`);
+    const storedWakeHour = window.localStorage.getItem(wakeHourKey);
+    const parsedWakeHour = storedWakeHour === null ? null : Number(storedWakeHour);
+
+    setCheckInDone(window.localStorage.getItem(checkInKey) === 'true');
+    setDayCheck(window.localStorage.getItem(dayCheckKey) ?? null);
+    setWakeHour(Number.isFinite(parsedWakeHour) ? parsedWakeHour : null);
+    setRoutineOverridden(false);
+  }, [todayKey, user]);
+
+  useEffect(() => {
+    if (!user) {
+      return undefined;
+    }
+
+    function reportClientError(message, stack, source) {
+      fetch('/api/logs/client-error', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, stack, source }),
+      }).catch(() => {});
+    }
+
+    function onWindowError(event) {
+      reportClientError(
+        String(event.message ?? 'Unhandled window error'),
+        event.error?.stack ?? null,
+        'window.error'
+      );
+    }
+
+    function onUnhandledRejection(event) {
+      const reason = event.reason;
+      reportClientError(
+        String(reason?.message ?? reason ?? 'Unhandled promise rejection'),
+        reason?.stack ?? null,
+        'window.unhandledrejection'
+      );
+    }
+
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!activePhase) {
@@ -994,7 +1102,6 @@ export default function App() {
     if (!user) {
       return;
     }
-    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     if (settings.preferences?.timeZone !== browserTimeZone) {
       setSettings((current) => ({
         ...current,
@@ -1126,6 +1233,7 @@ export default function App() {
       });
       setUser(data.user);
       setSettings(data.settings);
+      setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
       loadedSettingsRef.current = true;
       setAuthChecked(true);
       setAuthForm({ displayName: '', email: '', password: '' });
@@ -1146,6 +1254,7 @@ export default function App() {
     loadedSettingsRef.current = false;
     setUser(null);
     setSettings(DEFAULT_SETTINGS);
+    setFeatureFlags(DEFAULT_FEATURE_FLAGS);
     setAuthMode('login');
     setAuthError('');
     setSaveStatus('Signed out');
@@ -1177,7 +1286,10 @@ export default function App() {
   }
 
   function addSuggestionTask(phaseId, suggestion) {
-    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(suggestion.title, null, 'oneoff')]);
+    updateTasksInPhase(phaseId, (tasks) => [
+      ...tasks,
+      createTask(suggestion.title, suggestion.minutes ?? null, 'oneoff'),
+    ]);
   }
 
   function addTemplateTaskToPhase(phaseId, title) {
@@ -1359,18 +1471,18 @@ export default function App() {
 
   function handleCompleteCheckin() {
     triggerDailyReset();
-    localStorage.setItem('checkInDone', todayKey);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `checkInDone:${todayKey}`), 'true');
     setCheckInDone(true);
   }
 
   function handleSkipCheckin() {
     triggerDailyReset();
-    localStorage.setItem('checkInDone', todayKey);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `checkInDone:${todayKey}`), 'true');
     setCheckInDone(true);
   }
 
   function handleDayCheck(result) {
-    localStorage.setItem('dayCheck_' + todayKey, result);
+    window.localStorage.setItem(storageKeyForUser(user?.id, `dayCheck:${todayKey}`), result);
     setDayCheck(result);
     setRoutineOverridden(false);
     const nextType = result === 'clearly-worse' ? 'integration' : 'session';
@@ -1420,6 +1532,83 @@ export default function App() {
     );
   }
 
+  async function refreshAdminSummary() {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminStatus('');
+    try {
+      const data = await api('/api/admin/summary');
+      setAdminSummary(data);
+      setFeatureFlags(data.flags ?? DEFAULT_FEATURE_FLAGS);
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function searchAdminUsers(nextQuery = adminQuery) {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    setAdminLoading(true);
+    setAdminStatus('');
+    try {
+      const params = new URLSearchParams();
+      if (nextQuery.trim()) {
+        params.set('query', nextQuery.trim());
+      }
+      const data = await api(`/api/admin/users${params.toString() ? `?${params.toString()}` : ''}`);
+      setAdminUsers(data.users ?? []);
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function toggleFeatureFlag(key, enabled) {
+    setAdminStatus('');
+    try {
+      const data = await api(`/api/admin/flags/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled }),
+      });
+      setFeatureFlags(data.flags ?? DEFAULT_FEATURE_FLAGS);
+      setAdminSummary((current) => ({ ...current, flags: data.flags ?? DEFAULT_FEATURE_FLAGS }));
+    } catch (error) {
+      setAdminStatus(error.message);
+    }
+  }
+
+  async function resetUserState(targetUserId) {
+    setAdminStatus('');
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/reset`, {
+        method: 'POST',
+      });
+      setAdminStatus('User state reset.');
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+    } catch (error) {
+      setAdminStatus(error.message);
+    }
+  }
+
+  useEffect(() => {
+    if (siteView === 'admin' && user?.role === 'admin') {
+      refreshAdminSummary();
+      searchAdminUsers('');
+    }
+  }, [siteView, user?.role]);
+
+  useEffect(() => {
+    if (!isFeatureEnabled('cycle_tracking') && onboardingStep === 1) {
+      setOnboardingStep(2);
+    }
+  }, [onboardingStep, featureFlags]);
+
   if (!authChecked) {
     return (
       <main className="auth-shell">
@@ -1455,7 +1644,7 @@ export default function App() {
   const greeting = greetingFor(contextPeriod, firstName(user.displayName));
   const weather = mindContext.data?.weather;
   const circadian = circadianWindow(contextHour);
-  const cycleInfo = settings.preferences?.trackCycle
+  const cycleInfo = isFeatureEnabled('cycle_tracking') && settings.preferences?.trackCycle
     ? getCyclePhase(settings.preferences.cycleStartDate, settings.preferences.cycleLength)
     : null;
   const cycleTip = getCycleTip(cycleInfo);
@@ -1471,7 +1660,7 @@ export default function App() {
           {siteView !== 'planner' ? (
             <div>
               <p className="card-label">Focus Flow</p>
-              <h2>{siteView === 'settings' ? 'Settings' : 'Profile'}</h2>
+              <h2>{siteView === 'settings' ? 'Settings' : siteView === 'admin' ? 'Admin' : 'Profile'}</h2>
             </div>
           ) : (
             <span className="topbar-app-name">Focus Flow</span>
@@ -1500,6 +1689,11 @@ export default function App() {
                   <button className="ghost menu-item" onClick={() => { setSiteView('settings'); setMenuOpen(false); }}>
                     Settings
                   </button>
+                  {user.role === 'admin' && (
+                    <button className="ghost menu-item" onClick={() => { setSiteView('admin'); setMenuOpen(false); }}>
+                      Admin
+                    </button>
+                  )}
                   <button className="ghost menu-item" onClick={() => { setSiteView('planner'); setMenuOpen(false); }}>
                     Dashboard
                   </button>
@@ -1542,6 +1736,7 @@ export default function App() {
               </div>
             </div>
 
+            {isFeatureEnabled('cycle_tracking') && (
             <div style={{ marginTop: '1rem' }}>
               <p className="card-label">Cycle tracking</p>
               <div className="button-row" style={{ marginBottom: '0.5rem' }}>
@@ -1578,12 +1773,128 @@ export default function App() {
                 </div>
               )}
             </div>
+            )}
 
             <div className="button-row" style={{ marginTop: '1rem' }}>
               <button className="ghost" onClick={() => setSiteView('planner')}>Back to dashboard</button>
               <button className="secondary" onClick={syncLocationNow}>Update location</button>
             </div>
             {locationStatus && <p className="status-message">{locationStatus}</p>}
+          </section>
+        )}
+
+        {siteView === 'admin' && user.role === 'admin' && (
+          <section className="card admin-grid">
+            <div className="admin-section">
+              <div className="section-header">
+                <div>
+                  <p className="card-label">Admin controls</p>
+                  <h3>Feature flags</h3>
+                </div>
+                <button className="ghost small" onClick={refreshAdminSummary}>Refresh</button>
+              </div>
+              <p className="muted-copy">Use these to stage or hide product features during testing.</p>
+              <div className="admin-flag-list">
+                {(adminSummary.flags ?? featureFlags).map((flag) => (
+                  <div key={flag.key} className="admin-flag-row">
+                    <div>
+                      <strong>{flag.key}</strong>
+                      <p className="muted-copy">{flag.description}</p>
+                    </div>
+                    <button
+                      className={flag.enabled ? 'secondary small' : 'ghost small'}
+                      onClick={() => toggleFeatureFlag(flag.key, !flag.enabled)}
+                    >
+                      {flag.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="admin-section">
+              <p className="card-label">Snapshot</p>
+              <h3>Environment</h3>
+              <div className="admin-metrics">
+                <div className="admin-metric">
+                  <span>Total users</span>
+                  <strong>{adminSummary.metrics?.totalUsers ?? 0}</strong>
+                </div>
+                <div className="admin-metric">
+                  <span>Admins</span>
+                  <strong>{adminSummary.metrics?.adminUsers ?? 0}</strong>
+                </div>
+                <div className="admin-metric">
+                  <span>Flags</span>
+                  <strong>{(adminSummary.flags ?? featureFlags).length}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-section">
+              <div className="section-header">
+                <div>
+                  <p className="card-label">Testing tools</p>
+                  <h3>Users</h3>
+                </div>
+              </div>
+              <form
+                className="admin-user-search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  searchAdminUsers(adminQuery);
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="Search by email or name"
+                  value={adminQuery}
+                  onChange={(event) => setAdminQuery(event.target.value)}
+                />
+                <button type="submit" className="secondary">Search</button>
+              </form>
+              <div className="admin-user-list">
+                {adminUsers.map((adminUser) => (
+                  <div key={adminUser.id} className="admin-user-row">
+                    <div>
+                      <strong>{adminUser.displayName}</strong>
+                      <p className="muted-copy">{adminUser.email} · {adminUser.role}</p>
+                    </div>
+                    <button
+                      className="ghost small"
+                      disabled={adminUser.id === user.id}
+                      onClick={() => resetUserState(adminUser.id)}
+                    >
+                      {adminUser.id === user.id ? 'Current user' : 'Reset user'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="admin-section">
+              <div className="section-header">
+                <div>
+                  <p className="card-label">Observability</p>
+                  <h3>Recent events</h3>
+                </div>
+              </div>
+              <div className="admin-event-list">
+                {(adminSummary.recentEvents ?? []).map((event) => (
+                  <div key={event.id} className={`admin-event-row ${event.level}`}>
+                    <div className="admin-event-topline">
+                      <strong>{event.eventType}</strong>
+                      <span>{new Date(event.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p>{event.message}</p>
+                    {event.requestId && <span className="muted-copy">Request {event.requestId}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {adminLoading && <p className="status-message">Loading admin data…</p>}
+            {adminStatus && <p className="status-message">{adminStatus}</p>}
           </section>
         )}
 
@@ -1686,13 +1997,13 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <button className="secondary" style={{ marginTop: '1rem' }} onClick={() => setOnboardingStep(1)}>
+                <button className="secondary" style={{ marginTop: '1rem' }} onClick={() => setOnboardingStep(isFeatureEnabled('cycle_tracking') ? 1 : 2)}>
                   Continue
                 </button>
               </>
             )}
 
-            {onboardingStep === 1 && (
+            {onboardingStep === 1 && isFeatureEnabled('cycle_tracking') && (
               <>
                 <p className="card-label">Optional: hormonal context</p>
                 <h2>Do you want to track your cycle?</h2>
@@ -1777,7 +2088,7 @@ export default function App() {
         {siteView === 'planner' && settings.preferences?.onboardingComplete && (
           <>
             {/* Greeting + weather + circadian — first card */}
-            {(() => {
+            {isFeatureEnabled('mind_context') && (() => {
               const lightRec = getDynamicLightRec(contextHour, weather, settings.healthState, cycleInfo);
               return (
                 <div className="context-strip card">
@@ -1873,7 +2184,7 @@ export default function App() {
             </div>
 
             {/* Morning check-in (dismissible) */}
-            {!checkInDone && (
+            {isFeatureEnabled('daily_check_in') && !checkInDone && (
               <div className="card check-in-card">
                 <div className="check-in-header">
                   <p className="card-label">Check-in</p>
@@ -1893,7 +2204,10 @@ export default function App() {
                     <button
                       key={label}
                       className={`day-check-btn ${wakeHour === value ? 'selected' : ''}`}
-                      onClick={() => { localStorage.setItem('wakeHour_' + todayKey, String(value)); setWakeHour(value); }}
+                      onClick={() => {
+                        window.localStorage.setItem(storageKeyForUser(user?.id, `wakeHour:${todayKey}`), String(value));
+                        setWakeHour(value);
+                      }}
                     >
                       {label}
                     </button>
@@ -1978,7 +2292,7 @@ export default function App() {
             )}
 
             {/* Proactive task suggestion */}
-            {checkInDone && proactiveTask && (
+            {isFeatureEnabled('proactive_suggestions') && (checkInDone || !isFeatureEnabled('daily_check_in')) && proactiveTask && (
               <div className="card proactive-card">
                 <p className="card-label">Now</p>
                 <p className="proactive-prompt">
@@ -2096,7 +2410,7 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div className="task-actions">
-                                  {task.minutes && (
+                                  {isFeatureEnabled('task_timers') && task.minutes && (
                                     <button
                                       className={`task-timer-btn ${timerRunning ? 'active' : ''}`}
                                       onClick={() => toggleTaskTimer(task.id, task.minutes)}
@@ -2105,7 +2419,7 @@ export default function App() {
                                       {timerRunning ? '⏸' : '▶'}
                                     </button>
                                   )}
-                                  {timer && (
+                                  {isFeatureEnabled('task_timers') && timer && (
                                     <button className="ghost small" onClick={() => resetTaskTimer(task.id)} title="Reset timer">↺</button>
                                   )}
                                   <button className="ghost small" onClick={() => startEditTask(task)}>Edit</button>

@@ -22,7 +22,7 @@ docker compose up --build
 
 App URL: [http://localhost:3000](http://localhost:3000)
 
-LAN test URL: [http://192.168.1.115:3000](http://192.168.1.115:3000)
+LAN test URL: `http://<your-local-ip>:3000`
 
 API URL: `http://localhost:3001`
 
@@ -33,10 +33,22 @@ npm install
 npm run dev
 ```
 
+## Admin Access
+
+- Local admin access is controlled by the `ADMIN_EMAILS` environment variable.
+- Example: `ADMIN_EMAILS=you@example.com,teammate@example.com`
+- Matching users are elevated to the `admin` role on register/login/session refresh.
+- Admins get an in-app Admin page for:
+  - toggling feature flags
+  - viewing recent audit/error events
+  - searching users
+  - resetting a test user's saved state and sessions
+
 ## Local Data
 
 - SQLite database path: `data/focus-flow.db`
 - Session state uses an HTTP-only cookie in the browser.
+- Local runtime artifacts should stay out of git and out of Docker build context.
 
 ## Change Management
 

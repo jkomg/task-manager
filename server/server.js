@@ -7,6 +7,13 @@ import { buildDefaultState, normalizeState } from './defaultState.js';
 const app = express();
 const PORT = 3001;
 const SESSION_COOKIE = 'focus_flow_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+);
 const WEATHER_CODE_LABELS = {
   0: 'clear',
   1: 'mostly clear',
@@ -38,7 +45,33 @@ const WEATHER_CODE_LABELS = {
   99: 'thunderstorms with hail',
 };
 
+app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const payload = {
+      level: res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+      type: 'http_request',
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      userId: req.user?.id ?? null,
+    };
+    console.log(JSON.stringify(payload));
+  });
+  next();
+});
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 
 function parseCookies(cookieHeader = '') {
   return Object.fromEntries(
@@ -50,7 +83,11 @@ function parseCookies(cookieHeader = '') {
         const separatorIndex = part.indexOf('=');
         const key = separatorIndex >= 0 ? part.slice(0, separatorIndex) : part;
         const value = separatorIndex >= 0 ? part.slice(separatorIndex + 1) : '';
-        return [key, decodeURIComponent(value)];
+        try {
+          return [key, decodeURIComponent(value)];
+        } catch {
+          return [key, value];
+        }
       })
   );
 }
@@ -58,7 +95,7 @@ function parseCookies(cookieHeader = '') {
 function setSessionCookie(res, token) {
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Priority=High`
   );
 }
 
@@ -71,7 +108,94 @@ function publicUser(row) {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
+    role: row.role,
   };
+}
+
+function getUserRole(email, persistedRole = 'user') {
+  if (ADMIN_EMAILS.has(String(email ?? '').trim().toLowerCase())) {
+    return 'admin';
+  }
+  return persistedRole === 'admin' ? 'admin' : 'user';
+}
+
+function parseStoredSettings(settingsJson) {
+  try {
+    return normalizeState(JSON.parse(settingsJson));
+  } catch {
+    return buildDefaultState();
+  }
+}
+
+function parseJsonSafely(value, fallback = null) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getFeatureFlags() {
+  return db
+    .prepare('SELECT key, enabled, description, updated_at, updated_by_user_id FROM feature_flags ORDER BY key')
+    .all()
+    .map((row) => ({
+      key: row.key,
+      enabled: Boolean(row.enabled),
+      description: row.description,
+      updatedAt: row.updated_at,
+      updatedByUserId: row.updated_by_user_id,
+    }));
+}
+
+function writeAuditEvent({
+  eventType,
+  level = 'info',
+  actorUserId = null,
+  targetUserId = null,
+  requestId = null,
+  message,
+  metadata = null,
+}) {
+  const createdAt = new Date().toISOString();
+  const auditId = crypto.randomUUID();
+  db.prepare(
+    `INSERT INTO audit_events (
+      id, event_type, level, actor_user_id, target_user_id, request_id, message, metadata_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    auditId,
+    eventType,
+    level,
+    actorUserId,
+    targetUserId,
+    requestId,
+    message,
+    metadata ? JSON.stringify(metadata) : null,
+    createdAt
+  );
+
+  console.log(JSON.stringify({
+    level,
+    type: eventType,
+    requestId,
+    actorUserId,
+    targetUserId,
+    message,
+    metadata,
+  }));
+}
+
+function purgeExpiredSessions(nowIso = new Date().toISOString()) {
+  db.prepare('DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at <= ?').run(nowIso);
+}
+
+function createSession(userId) {
+  const createdAt = new Date();
+  const token = crypto.randomUUID();
+  db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, userId, createdAt.toISOString(), new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString());
+  return token;
 }
 
 function requireAuth(req, res, next) {
@@ -82,14 +206,17 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
 
+  purgeExpiredSessions();
+  const nowIso = new Date().toISOString();
   const row = db
     .prepare(
-      `SELECT users.id, users.email, users.display_name, users.settings_json
+      `SELECT users.id, users.email, users.display_name, users.role, users.settings_json
        FROM sessions
        JOIN users ON users.id = sessions.user_id
-       WHERE sessions.token = ?`
+       WHERE sessions.token = ?
+         AND (sessions.expires_at IS NULL OR sessions.expires_at > ?)`
     )
-    .get(token);
+    .get(token, nowIso);
 
   if (!row) {
     clearSessionCookie(res);
@@ -98,6 +225,13 @@ function requireAuth(req, res, next) {
 
   req.user = row;
   req.sessionToken = token;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
   next();
 }
 
@@ -159,25 +293,33 @@ app.post('/api/auth/register', (req, res) => {
   const id = crypto.randomUUID();
   const passwordHash = bcrypt.hashSync(password, 10);
   const settings = JSON.stringify(buildDefaultState());
+  const role = getUserRole(email);
 
   db.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name, settings_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, email, passwordHash, displayName, settings, new Date().toISOString());
+    `INSERT INTO users (id, email, password_hash, display_name, role, settings_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, email, passwordHash, displayName, role, settings, new Date().toISOString());
 
-  const token = crypto.randomUUID();
-  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
-    .run(token, id, new Date().toISOString());
+  const token = createSession(id);
 
   setSessionCookie(res, token);
 
   const user = db
-    .prepare('SELECT id, email, display_name FROM users WHERE id = ?')
+    .prepare('SELECT id, email, display_name, role FROM users WHERE id = ?')
     .get(id);
+
+  writeAuditEvent({
+    eventType: 'user.registered',
+    actorUserId: id,
+    requestId: req.requestId,
+    message: `User registered: ${email}`,
+    metadata: { role },
+  });
 
   return res.status(201).json({
     user: publicUser(user),
-    settings: JSON.parse(settings),
+    settings: parseStoredSettings(settings),
+    featureFlags: getFeatureFlags(),
   });
 });
 
@@ -186,35 +328,64 @@ app.post('/api/auth/login', (req, res) => {
   const password = String(req.body?.password ?? '');
 
   const user = db
-    .prepare('SELECT id, email, display_name, password_hash, settings_json FROM users WHERE email = ?')
+    .prepare('SELECT id, email, display_name, role, password_hash, settings_json FROM users WHERE email = ?')
     .get(email);
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    writeAuditEvent({
+      eventType: 'auth.login_failed',
+      level: 'warn',
+      requestId: req.requestId,
+      message: `Failed login attempt for ${email || 'unknown email'}`,
+    });
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
 
-  const token = crypto.randomUUID();
-  db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
-    .run(token, user.id, new Date().toISOString());
+  const resolvedRole = getUserRole(user.email, user.role);
+  if (resolvedRole !== user.role) {
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(resolvedRole, user.id);
+    user.role = resolvedRole;
+  }
+  const token = createSession(user.id);
 
   setSessionCookie(res, token);
 
+  writeAuditEvent({
+    eventType: 'auth.login_succeeded',
+    actorUserId: user.id,
+    requestId: req.requestId,
+    message: `User logged in: ${user.email}`,
+  });
+
   return res.json({
     user: publicUser(user),
-    settings: normalizeState(JSON.parse(user.settings_json)),
+    settings: parseStoredSettings(user.settings_json),
+    featureFlags: getFeatureFlags(),
   });
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   db.prepare('DELETE FROM sessions WHERE token = ?').run(req.sessionToken);
   clearSessionCookie(res);
+  writeAuditEvent({
+    eventType: 'auth.logout',
+    actorUserId: req.user.id,
+    requestId: req.requestId,
+    message: `User logged out: ${req.user.email}`,
+  });
   res.status(204).end();
 });
 
 app.get('/api/auth/session', requireAuth, (req, res) => {
+  const resolvedRole = getUserRole(req.user.email, req.user.role);
+  if (resolvedRole !== req.user.role) {
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(resolvedRole, req.user.id);
+    req.user.role = resolvedRole;
+  }
   res.json({
     user: publicUser(req.user),
-    settings: normalizeState(JSON.parse(req.user.settings_json)),
+    settings: parseStoredSettings(req.user.settings_json),
+    featureFlags: getFeatureFlags(),
   });
 });
 
@@ -224,13 +395,153 @@ app.put('/api/settings', requireAuth, (req, res) => {
   db.prepare('UPDATE users SET settings_json = ? WHERE id = ?')
     .run(JSON.stringify(nextState), req.user.id);
 
+  writeAuditEvent({
+    eventType: 'settings.updated',
+    actorUserId: req.user.id,
+    requestId: req.requestId,
+    message: 'User settings updated.',
+  });
+
   res.json({ settings: nextState });
+});
+
+app.post('/api/logs/client-error', requireAuth, (req, res) => {
+  const message = String(req.body?.message ?? '').trim();
+  const source = String(req.body?.source ?? 'client');
+  if (!message) {
+    return res.status(400).json({ error: 'Message is required.' });
+  }
+
+  writeAuditEvent({
+    eventType: 'client.error',
+    level: 'error',
+    actorUserId: req.user.id,
+    requestId: req.requestId,
+    message,
+    metadata: {
+      source,
+      stack: typeof req.body?.stack === 'string' ? req.body.stack : null,
+      userAgent: req.get('user-agent') ?? null,
+    },
+  });
+
+  res.status(204).end();
+});
+
+app.get('/api/admin/summary', requireAuth, requireAdmin, (_req, res) => {
+  const flags = getFeatureFlags();
+  const counts = db.prepare(`
+    SELECT
+      COUNT(*) AS totalUsers,
+      SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS adminUsers
+    FROM users
+  `).get();
+  const recentEvents = db.prepare(`
+    SELECT id, event_type, level, actor_user_id, target_user_id, request_id, message, metadata_json, created_at
+    FROM audit_events
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all().map((row) => ({
+    id: row.id,
+    eventType: row.event_type,
+    level: row.level,
+    actorUserId: row.actor_user_id,
+    targetUserId: row.target_user_id,
+    requestId: row.request_id,
+    message: row.message,
+    metadata: parseJsonSafely(row.metadata_json),
+    createdAt: row.created_at,
+  }));
+
+  res.json({
+    flags,
+    metrics: {
+      totalUsers: Number(counts.totalUsers ?? 0),
+      adminUsers: Number(counts.adminUsers ?? 0),
+    },
+    recentEvents,
+  });
+});
+
+app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
+  const query = String(req.query.query ?? '').trim().toLowerCase();
+  const sql = `
+    SELECT id, email, display_name, role, created_at
+    FROM users
+    WHERE (? = '' OR lower(email) LIKE ? OR lower(display_name) LIKE ?)
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  const likeQuery = `%${query}%`;
+  const users = db.prepare(sql).all(query, likeQuery, likeQuery).map((row) => ({
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    role: row.role,
+    createdAt: row.created_at,
+  }));
+
+  res.json({ users });
+});
+
+app.put('/api/admin/flags/:key', requireAuth, requireAdmin, (req, res) => {
+  const key = String(req.params.key ?? '').trim();
+  const enabled = Boolean(req.body?.enabled);
+  const existing = db.prepare('SELECT key, description FROM feature_flags WHERE key = ?').get(key);
+  if (!existing) {
+    return res.status(404).json({ error: 'Feature flag not found.' });
+  }
+
+  db.prepare(`
+    UPDATE feature_flags
+    SET enabled = ?, updated_at = ?, updated_by_user_id = ?
+    WHERE key = ?
+  `).run(enabled ? 1 : 0, new Date().toISOString(), req.user.id, key);
+
+  writeAuditEvent({
+    eventType: 'admin.feature_flag_updated',
+    actorUserId: req.user.id,
+    requestId: req.requestId,
+    message: `Feature flag ${key} set to ${enabled ? 'enabled' : 'disabled'}.`,
+    metadata: { key, enabled },
+  });
+
+  res.json({ flags: getFeatureFlags() });
+});
+
+app.post('/api/admin/users/:userId/reset', requireAuth, requireAdmin, (req, res) => {
+  const targetUserId = String(req.params.userId ?? '').trim();
+  if (targetUserId === req.user.id) {
+    return res.status(400).json({ error: 'Reset your own account manually instead of using the admin reset.' });
+  }
+  const target = db.prepare('SELECT id, email, display_name, role FROM users WHERE id = ?').get(targetUserId);
+  if (!target) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  db.prepare('UPDATE users SET settings_json = ? WHERE id = ?')
+    .run(JSON.stringify(buildDefaultState()), targetUserId);
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+
+  writeAuditEvent({
+    eventType: 'admin.user_reset',
+    level: 'warn',
+    actorUserId: req.user.id,
+    targetUserId,
+    requestId: req.requestId,
+    message: `User reset by admin: ${target.email}`,
+  });
+
+  res.json({
+    ok: true,
+    user: publicUser(target),
+  });
 });
 
 app.get('/api/context/brief', requireAuth, async (req, res) => {
   const latitude = Number(req.query.lat);
   const longitude = Number(req.query.lon);
-  const persisted = normalizeState(JSON.parse(req.user.settings_json));
+  const persisted = parseStoredSettings(req.user.settings_json);
   const timeZone = String(req.query.timeZone ?? req.query.tz ?? persisted.preferences?.timeZone ?? 'UTC');
   const timeDetails = getTimeDetails(timeZone);
 
@@ -287,6 +598,21 @@ app.get('/api/context/brief', requireAuth, async (req, res) => {
       weather: null,
     });
   }
+});
+
+app.use((error, req, res, _next) => {
+  writeAuditEvent({
+    eventType: 'server.error',
+    level: 'error',
+    actorUserId: req.user?.id ?? null,
+    requestId: req.requestId ?? null,
+    message: String(error?.message ?? error ?? 'Unhandled server error'),
+    metadata: { stack: error?.stack ?? null, path: req.originalUrl ?? null },
+  });
+  if (res.headersSent) {
+    return;
+  }
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
 app.listen(PORT, () => {
