@@ -82,8 +82,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS audit_events ${AUDIT_EVENTS_TABLE_BODY};
 `);
 
+function getTableColumns(tableName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all();
+}
+
 function rebuildUsersTableIfNeeded() {
-  const userColumns = db.prepare('PRAGMA table_info(users)').all();
+  const userColumns = getTableColumns('users');
   const columnNames = new Set(userColumns.map((column) => column.name));
   const passwordHashColumn = userColumns.find((column) => column.name === 'password_hash');
   const needsRebuild =
@@ -163,6 +167,9 @@ function rebuildUserForeignKeyTablesIfNeeded() {
     return;
   }
 
+  const sessionColumnNames = new Set(getTableColumns('sessions').map((column) => column.name));
+  const sessionExpiresExpression = sessionColumnNames.has('expires_at') ? 'expires_at' : 'NULL';
+
   const rebuildTables = db.transaction(() => {
     db.pragma('foreign_keys = OFF');
 
@@ -170,7 +177,7 @@ function rebuildUserForeignKeyTablesIfNeeded() {
       db.exec(`CREATE TABLE sessions_new ${SESSIONS_TABLE_BODY}`);
       db.exec(`
         INSERT INTO sessions_new (token, user_id, created_at, expires_at)
-        SELECT token, user_id, created_at, expires_at
+        SELECT token, user_id, created_at, ${sessionExpiresExpression}
         FROM sessions
       `);
       db.exec('DROP TABLE sessions');
@@ -210,7 +217,7 @@ function rebuildUserForeignKeyTablesIfNeeded() {
 
 rebuildUserForeignKeyTablesIfNeeded();
 
-const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all();
+const sessionColumns = getTableColumns('sessions');
 
 if (!sessionColumns.some((column) => column.name === 'expires_at')) {
   db.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');

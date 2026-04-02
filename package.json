@@ -8,6 +8,7 @@
     "dev:client": "vite --host 0.0.0.0 --port 3000",
     "dev:server": "node --watch server/server.js",
     "build": "vite build",
+    "test": "node --test",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "start": "node server/server.js"
   },
