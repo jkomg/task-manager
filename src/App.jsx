@@ -168,10 +168,10 @@ const DEFAULT_SETTINGS = {
       name: 'Quiet Window',
       defaultMinutes: 90,
       tasks: [
-        { id: 'task-1', title: 'Body scan + jaw check', done: false, minutes: 3 },
-        { id: 'task-2', title: 'Input reading', done: false, minutes: 25 },
-        { id: 'task-3', title: 'Capture ideas in notebook', done: false, minutes: 10 },
-        { id: 'task-4', title: 'Spanish primer', done: false, minutes: 20 },
+        { id: 'task-1', title: 'Body scan + jaw check', done: false, minutes: 3, type: 'template', carryCount: 0 },
+        { id: 'task-2', title: 'Input reading', done: false, minutes: 25, type: 'template', carryCount: 0 },
+        { id: 'task-3', title: 'Capture ideas in notebook', done: false, minutes: 10, type: 'template', carryCount: 0 },
+        { id: 'task-4', title: 'Spanish primer', done: false, minutes: 20, type: 'template', carryCount: 0 },
       ],
     },
     {
@@ -179,9 +179,9 @@ const DEFAULT_SETTINGS = {
       name: 'Activation Bridge',
       defaultMinutes: 60,
       tasks: [
-        { id: 'task-5', title: 'Compost existing captures', done: false, minutes: 20 },
-        { id: 'task-6', title: 'Light writing touch', done: false, minutes: 25 },
-        { id: 'task-7', title: 'Spanish mid-touch', done: false, minutes: 15 },
+        { id: 'task-5', title: 'Compost existing captures', done: false, minutes: 20, type: 'template', carryCount: 0 },
+        { id: 'task-6', title: 'Light writing touch', done: false, minutes: 25, type: 'template', carryCount: 0 },
+        { id: 'task-7', title: 'Spanish mid-touch', done: false, minutes: 15, type: 'template', carryCount: 0 },
       ],
     },
     {
@@ -189,9 +189,9 @@ const DEFAULT_SETTINGS = {
       name: 'Deep Window',
       defaultMinutes: 150,
       tasks: [
-        { id: 'task-8', title: 'Deep writing block (Draft or Revise)', done: false, minutes: 50 },
-        { id: 'task-9', title: 'Reading as writer (craft study)', done: false, minutes: 25 },
-        { id: 'task-10', title: 'Admin sweep', done: false, minutes: 20 },
+        { id: 'task-8', title: 'Deep writing block (Draft or Revise)', done: false, minutes: 50, type: 'template', carryCount: 0 },
+        { id: 'task-9', title: 'Reading as writer (craft study)', done: false, minutes: 25, type: 'template', carryCount: 0 },
+        { id: 'task-10', title: 'Admin sweep', done: false, minutes: 20, type: 'template', carryCount: 0 },
       ],
     },
     {
@@ -199,9 +199,9 @@ const DEFAULT_SETTINGS = {
       name: 'Body + Recovery',
       defaultMinutes: 120,
       tasks: [
-        { id: 'task-11', title: 'Rehab movement set', done: false, minutes: 30 },
-        { id: 'task-12', title: 'Legs up / restorative break', done: false, minutes: 15 },
-        { id: 'task-13', title: 'Capture one sentence', done: false, minutes: 5 },
+        { id: 'task-11', title: 'Rehab movement set', done: false, minutes: 30, type: 'template', carryCount: 0 },
+        { id: 'task-12', title: 'Legs up / restorative break', done: false, minutes: 15, type: 'template', carryCount: 0 },
+        { id: 'task-13', title: 'Capture one sentence', done: false, minutes: 5, type: 'template', carryCount: 0 },
       ],
     },
     {
@@ -209,9 +209,9 @@ const DEFAULT_SETTINGS = {
       name: 'Afternoon Drift',
       defaultMinutes: 120,
       tasks: [
-        { id: 'task-14', title: 'System review + tomorrow setup', done: false, minutes: 15 },
-        { id: 'task-15', title: 'Light Spanish', done: false, minutes: 20 },
-        { id: 'task-16', title: 'Wind-down routine', done: false, minutes: 30 },
+        { id: 'task-14', title: 'System review + tomorrow setup', done: false, minutes: 15, type: 'template', carryCount: 0 },
+        { id: 'task-15', title: 'Light Spanish', done: false, minutes: 20, type: 'template', carryCount: 0 },
+        { id: 'task-16', title: 'Wind-down routine', done: false, minutes: 30, type: 'template', carryCount: 0 },
       ],
     },
   ],
@@ -227,6 +227,7 @@ const DEFAULT_SETTINGS = {
     trackCycle: false,
     cycleStartDate: null,
     cycleLength: 28,
+    lastResetDate: null,
   },
 };
 
@@ -241,7 +242,7 @@ function formatSeconds(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-function createTask(title, minutes = null) {
+function createTask(title, minutes = null, type = 'oneoff') {
   const uuid = typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -250,6 +251,8 @@ function createTask(title, minutes = null) {
     title,
     done: false,
     minutes,
+    type,
+    carryCount: 0,
   };
 }
 
@@ -828,19 +831,30 @@ export default function App() {
   const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [taskTimers, setTaskTimers] = useState({});
-  const [checkInDone, setCheckInDone] = useState(false);
-  const [collapsedPhases, setCollapsedPhases] = useState(new Set());
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const [checkInDone, setCheckInDone] = useState(
+    () => localStorage.getItem('checkInDone') === todayKey
+  );
+  const [collapsedPhases, setCollapsedPhases] = useState(
+    () => new Set(DEFAULT_SETTINGS.phases.map((p) => p.id).filter((id) => id !== DEFAULT_SETTINGS.activePhaseId))
+  );
   const [quickAddInputs, setQuickAddInputs] = useState({});
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editMinutes, setEditMinutes] = useState('');
   const [setupDraft, setSetupDraft] = useState({});
+  const [routineOverridden, setRoutineOverridden] = useState(false);
+  const [templateAddInputs, setTemplateAddInputs] = useState({});
   const [locationStatus, setLocationStatus] = useState('');
   const [mindContext, setMindContext] = useState({ loading: false, data: null, error: '' });
   const [mindAction, setMindAction] = useState('');
-  const [dayCheck, setDayCheck] = useState(null); // null | 'better' | 'mildly-worse' | 'clearly-worse'
+  const [dayCheck, setDayCheck] = useState(
+    () => localStorage.getItem('dayCheck_' + new Date().toISOString().slice(0, 10)) ?? null
+  );
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [wakeHour, setWakeHour] = useState(null); // decimal clock hour, set during morning check-in
+  const [wakeHour, setWakeHour] = useState(
+    () => { const v = localStorage.getItem('wakeHour_' + new Date().toISOString().slice(0, 10)); return v !== null ? Number(v) : null; }
+  );
   const [profileExpanded, setProfileExpanded] = useState(false);
   const [authForm, setAuthForm] = useState({
     displayName: '',
@@ -1057,6 +1071,16 @@ export default function App() {
     };
   }, [settings.preferences?.location, settings.preferences?.timeZone, siteView, user, settings.activePhaseId]);
 
+  // Auto-expand the active phase whenever it changes (e.g. after settings load from API)
+  useEffect(() => {
+    setCollapsedPhases((prev) => {
+      if (!prev.has(settings.activePhaseId)) return prev;
+      const next = new Set(prev);
+      next.delete(settings.activePhaseId);
+      return next;
+    });
+  }, [settings.activePhaseId]);
+
   useEffect(() => {
     if (settings.preferences?.setupComplete) {
       return;
@@ -1148,12 +1172,17 @@ export default function App() {
 
   function addTaskToPhase(phaseId, title) {
     if (!title.trim()) return;
-    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null)]);
+    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null, 'oneoff')]);
     setQuickAddInputs((current) => ({ ...current, [phaseId]: '' }));
   }
 
   function addSuggestionTask(phaseId, suggestion) {
-    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(suggestion.title, null)]);
+    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(suggestion.title, null, 'oneoff')]);
+  }
+
+  function addTemplateTaskToPhase(phaseId, title) {
+    if (!title.trim()) return;
+    updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null, 'template')]);
   }
 
   function startEditTask(task) {
@@ -1222,7 +1251,10 @@ export default function App() {
       routineType: nextType,
       phases: current.phases.map((phase) => ({
         ...phase,
-        tasks: getSuggestions(nextType, phase.name).slice(0, 4).map((task) => createTask(task.title, task.minutes)),
+        tasks: [
+          ...phase.tasks.filter((t) => t.type !== 'template'),
+          ...getSuggestions(nextType, phase.name).slice(0, 4).map((task) => createTask(task.title, task.minutes, 'template')),
+        ],
       })),
     }));
   }
@@ -1306,13 +1338,43 @@ export default function App() {
     setMindAction(`Start "${nextTask.title}" now for ${durationHint}. Keep distractions out until it is done.`);
   }
 
+  function triggerDailyReset() {
+    setSettings((current) => {
+      if (current.preferences?.lastResetDate === todayKey) return current;
+      const newPhases = current.phases.map((phase) => ({
+        ...phase,
+        tasks: (phase.tasks ?? []).flatMap((t) => {
+          if (t.type === 'template') return [{ ...t, done: false }];
+          if (!t.done) return [{ ...t, carryCount: (t.carryCount || 0) + 1 }];
+          return [];
+        }),
+      }));
+      return {
+        ...current,
+        phases: newPhases,
+        preferences: { ...current.preferences, lastResetDate: todayKey },
+      };
+    });
+  }
+
+  function handleCompleteCheckin() {
+    triggerDailyReset();
+    localStorage.setItem('checkInDone', todayKey);
+    setCheckInDone(true);
+  }
+
+  function handleSkipCheckin() {
+    triggerDailyReset();
+    localStorage.setItem('checkInDone', todayKey);
+    setCheckInDone(true);
+  }
+
   function handleDayCheck(result) {
+    localStorage.setItem('dayCheck_' + todayKey, result);
     setDayCheck(result);
-    if (result === 'clearly-worse') {
-      setSettingsPatch({ routineType: 'integration' });
-    } else {
-      setSettingsPatch({ routineType: 'session' });
-    }
+    setRoutineOverridden(false);
+    const nextType = result === 'clearly-worse' ? 'integration' : 'session';
+    setSettingsPatch({ routineType: nextType });
   }
 
   function refreshContext() {
@@ -1465,11 +1527,13 @@ export default function App() {
                     key={goal.key}
                     className={`goal-chip ${(settings.preferences?.goals ?? []).includes(goal.key) ? 'active' : 'ghost'}`}
                     onClick={() => {
-                      const current = settings.preferences?.goals ?? [];
-                      const next = current.includes(goal.key)
-                        ? current.filter((g) => g !== goal.key)
-                        : [...current, goal.key];
-                      setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), goals: next } }));
+                      setSettings((s) => {
+                        const current = s.preferences?.goals ?? [];
+                        const next = current.includes(goal.key)
+                          ? current.filter((g) => g !== goal.key)
+                          : [...current, goal.key];
+                        return { ...s, preferences: { ...(s.preferences ?? {}), goals: next } };
+                      });
                     }}
                   >
                     {goal.label}
@@ -1563,6 +1627,32 @@ export default function App() {
                     </label>
                     <button className="ghost small" onClick={() => setSettingsPatch({ activePhaseId: phase.id })}>Make active</button>
                   </div>
+                  <div className="settings-template-tasks">
+                    <p className="field-label">Repeating tasks</p>
+                    {phase.tasks.filter((t) => t.type === 'template').map((task) => (
+                      <div key={task.id} className="settings-template-task-row">
+                        <span className="settings-template-task-title">{task.title}</span>
+                        {task.minutes && <span className="muted-copy">{task.minutes}m</span>}
+                        <button className="ghost small danger-text" onClick={() => deleteTask(phase.id, task.id)}>×</button>
+                      </div>
+                    ))}
+                    <form
+                      className="settings-template-add"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const val = templateAddInputs[phase.id] ?? '';
+                        addTemplateTaskToPhase(phase.id, val);
+                        setTemplateAddInputs((cur) => ({ ...cur, [phase.id]: '' }));
+                      }}
+                    >
+                      <input
+                        type="text"
+                        placeholder="Add repeating task…"
+                        value={templateAddInputs[phase.id] ?? ''}
+                        onChange={(e) => setTemplateAddInputs((cur) => ({ ...cur, [phase.id]: e.target.value }))}
+                      />
+                    </form>
+                  </div>
                 </div>
               ))}
               <button className="secondary" onClick={() => insertPhaseAt(settings.phases.length)}>+ Add phase at end</button>
@@ -1583,11 +1673,13 @@ export default function App() {
                       key={goal.key}
                       className={`goal-chip ${goals.includes(goal.key) ? 'active' : 'ghost'}`}
                       onClick={() => {
-                        const current = settings.preferences?.goals ?? [];
-                        const next = current.includes(goal.key)
-                          ? current.filter((g) => g !== goal.key)
-                          : [...current, goal.key];
-                        setSettings((s) => ({ ...s, preferences: { ...(s.preferences ?? {}), goals: next } }));
+                        setSettings((s) => {
+                          const current = s.preferences?.goals ?? [];
+                          const next = current.includes(goal.key)
+                            ? current.filter((g) => g !== goal.key)
+                            : [...current, goal.key];
+                          return { ...s, preferences: { ...(s.preferences ?? {}), goals: next } };
+                        });
                       }}
                     >
                       {goal.label}
@@ -1785,7 +1877,7 @@ export default function App() {
               <div className="card check-in-card">
                 <div className="check-in-header">
                   <p className="card-label">Check-in</p>
-                  <button className="ghost small" onClick={() => setCheckInDone(true)} aria-label="Skip check-in">✕</button>
+                  <button className="ghost small" onClick={handleSkipCheckin} aria-label="Skip check-in">✕</button>
                 </div>
 
                 <p className="check-in-prompt">When did you wake up?</p>
@@ -1801,7 +1893,7 @@ export default function App() {
                     <button
                       key={label}
                       className={`day-check-btn ${wakeHour === value ? 'selected' : ''}`}
-                      onClick={() => setWakeHour(value)}
+                      onClick={() => { localStorage.setItem('wakeHour_' + todayKey, String(value)); setWakeHour(value); }}
                     >
                       {label}
                     </button>
@@ -1817,7 +1909,15 @@ export default function App() {
                       <button className={`day-check-btn danger ${dayCheck === 'clearly-worse' ? 'selected' : ''}`} onClick={() => handleDayCheck('clearly-worse')}>Rough day</button>
                     </div>
                     {dayCheck === 'mildly-worse' && <p className="decision-note warn">Consider reducing long blocks and adding a movement break earlier in the day.</p>}
-                    {dayCheck === 'clearly-worse' && <p className="decision-note danger">Lighter day. Shorter blocks, more breaks, no pressure on deep work.</p>}
+                    {dayCheck === 'clearly-worse' && !routineOverridden && (
+                      <div className="decision-note danger">
+                        <p style={{ margin: '0 0 0.5rem' }}>Switching to Integration Day — lighter blocks, more breaks, no pressure on deep work. Your repeating tasks will reflect this at reset.</p>
+                        <button className="ghost small" onClick={() => { setSettingsPatch({ routineType: 'session' }); setRoutineOverridden(true); }}>Keep Session Day instead</button>
+                      </div>
+                    )}
+                    {dayCheck === 'clearly-worse' && routineOverridden && (
+                      <p className="decision-note warn">Keeping Session Day. Adjust scope as needed.</p>
+                    )}
                   </>
                 )}
 
@@ -1831,7 +1931,45 @@ export default function App() {
                         </button>
                       ))}
                     </div>
-                    <button className="secondary" style={{ marginTop: '0.85rem' }} onClick={() => setCheckInDone(true)}>
+
+                    {(() => {
+                      const needsReset = settings.preferences?.lastResetDate !== todayKey;
+                      const carryover = needsReset
+                        ? settings.phases.flatMap((phase) =>
+                            (phase.tasks ?? [])
+                              .filter((t) => t.type !== 'template' && !t.done)
+                              .map((t) => ({ ...t, phaseId: phase.id, phaseName: phase.name }))
+                          )
+                        : [];
+                      return carryover.length > 0 ? (
+                        <div className="carryover-section">
+                          <p className="check-in-prompt" style={{ marginTop: '0.85rem' }}>
+                            {carryover.length} task{carryover.length !== 1 ? 's' : ''} from yesterday
+                          </p>
+                          {carryover.map((task) => (
+                            <div key={task.id} className="carryover-task-row">
+                              <div className="carryover-task-info">
+                                <span className="carryover-task-title">{task.title}</span>
+                                <span className="carryover-task-phase">{task.phaseName}</span>
+                                {task.carryCount >= 2 && (
+                                  <span className={`carry-badge ${task.carryCount >= 3 ? 'carry-stuck' : ''}`}>
+                                    {task.carryCount >= 3 ? `${task.carryCount}d — revisit?` : `${task.carryCount}d`}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                className="ghost small"
+                                onClick={() => deleteTask(task.phaseId, task.id)}
+                              >
+                                Let go
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+
+                    <button className="secondary" style={{ marginTop: '0.85rem' }} onClick={handleCompleteCheckin}>
                       Into the day
                     </button>
                   </>
@@ -1937,15 +2075,25 @@ export default function App() {
                                 />
                                 <div className="task-copy">
                                   <span className="task-title">{task.title}</span>
-                                  {task.minutes && !timer && (
-                                    <span className="task-duration">{task.minutes} min</span>
-                                  )}
-                                  {timer && (
-                                    <span className="task-timer-running">
-                                      {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}
-                                      {' · '}{task.minutes}m total
-                                    </span>
-                                  )}
+                                  <div className="task-meta-row">
+                                    {task.type === 'template' && (
+                                      <span className="task-repeat-dot" title="Repeating task" />
+                                    )}
+                                    {task.type !== 'template' && task.carryCount > 0 && (
+                                      <span className={`carry-badge${task.carryCount >= 3 ? ' carry-stuck' : ''}`} title={`Carried over ${task.carryCount} day${task.carryCount !== 1 ? 's' : ''}`}>
+                                        {task.carryCount >= 3 ? `${task.carryCount}d — revisit?` : `${task.carryCount}d`}
+                                      </span>
+                                    )}
+                                    {task.minutes && !timer && (
+                                      <span className="task-duration">{task.minutes} min</span>
+                                    )}
+                                    {timer && (
+                                      <span className="task-timer-running">
+                                        {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}
+                                        {' · '}{task.minutes}m total
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="task-actions">
                                   {task.minutes && (
@@ -1962,6 +2110,7 @@ export default function App() {
                                   )}
                                   <button className="ghost small" onClick={() => startEditTask(task)}>Edit</button>
                                 </div>
+
                               </>
                             )}
                           </article>
