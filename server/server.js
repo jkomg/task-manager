@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
-import bcrypt from 'bcryptjs';
 import express from 'express';
+import {
+  assertPasswordAuthEnabled,
+  buildLocalIdentity,
+  canUsePasswordAuth,
+  getAuthConfig,
+  hashPassword,
+  normalizeEmail,
+  verifyPassword,
+} from './auth.js';
 import db from './db.js';
 import { buildDefaultState, normalizeState } from './defaultState.js';
 
@@ -8,6 +16,7 @@ const app = express();
 const PORT = 3001;
 const SESSION_COOKIE = 'focus_flow_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS ?? '')
     .split(',')
@@ -95,12 +104,12 @@ function parseCookies(cookieHeader = '') {
 function setSessionCookie(res, token) {
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Priority=High`
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}; Priority=High${COOKIE_SECURE ? '; Secure' : ''}`
   );
 }
 
 function clearSessionCookie(res) {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${COOKIE_SECURE ? '; Secure' : ''}`);
 }
 
 function publicUser(row) {
@@ -109,6 +118,8 @@ function publicUser(row) {
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    authProvider: row.auth_provider ?? 'local',
+    accountStatus: row.account_status ?? 'active',
   };
 }
 
@@ -133,6 +144,15 @@ function parseJsonSafely(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function authResponseForUser(user, settingsJson = user.settings_json) {
+  return {
+    user: publicUser(user),
+    settings: parseStoredSettings(settingsJson),
+    featureFlags: getFeatureFlags(),
+    auth: getAuthConfig(),
+  };
 }
 
 function getFeatureFlags() {
@@ -190,12 +210,21 @@ function purgeExpiredSessions(nowIso = new Date().toISOString()) {
   db.prepare('DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at <= ?').run(nowIso);
 }
 
+function nextSessionExpiry(baseDate = new Date()) {
+  return new Date(baseDate.getTime() + SESSION_TTL_MS).toISOString();
+}
+
 function createSession(userId) {
   const createdAt = new Date();
   const token = crypto.randomUUID();
   db.prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .run(token, userId, createdAt.toISOString(), new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString());
+    .run(token, userId, createdAt.toISOString(), nextSessionExpiry(createdAt));
   return token;
+}
+
+function refreshSession(token) {
+  db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?')
+    .run(nextSessionExpiry(), token);
 }
 
 function requireAuth(req, res, next) {
@@ -210,7 +239,8 @@ function requireAuth(req, res, next) {
   const nowIso = new Date().toISOString();
   const row = db
     .prepare(
-      `SELECT users.id, users.email, users.display_name, users.role, users.settings_json
+      `SELECT users.id, users.email, users.display_name, users.role, users.auth_provider, users.auth_subject,
+              users.account_status, users.settings_json
        FROM sessions
        JOIN users ON users.id = sessions.user_id
        WHERE sessions.token = ?
@@ -223,8 +253,16 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Session expired.' });
   }
 
+  if (row.account_status !== 'active') {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    clearSessionCookie(res);
+    return res.status(403).json({ error: 'Account access is unavailable.' });
+  }
+
   req.user = row;
   req.sessionToken = token;
+  refreshSession(token);
+  setSessionCookie(res, token);
   next();
 }
 
@@ -272,8 +310,13 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/auth/config', (_req, res) => {
+  res.json({ auth: getAuthConfig() });
+});
+
 app.post('/api/auth/register', (req, res) => {
-  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  assertPasswordAuthEnabled();
+  const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password ?? '');
   const displayName = String(req.body?.displayName ?? '').trim();
 
@@ -291,21 +334,23 @@ app.post('/api/auth/register', (req, res) => {
   }
 
   const id = crypto.randomUUID();
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const passwordHash = hashPassword(password);
   const settings = JSON.stringify(buildDefaultState());
   const role = getUserRole(email);
+  const identity = buildLocalIdentity(email);
 
   db.prepare(
-    `INSERT INTO users (id, email, password_hash, display_name, role, settings_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, email, passwordHash, displayName, role, settings, new Date().toISOString());
+    `INSERT INTO users (
+      id, email, password_hash, display_name, role, auth_provider, auth_subject, account_status, settings_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, email, passwordHash, displayName, role, identity.authProvider, identity.authSubject, 'active', settings, new Date().toISOString());
 
   const token = createSession(id);
 
   setSessionCookie(res, token);
 
   const user = db
-    .prepare('SELECT id, email, display_name, role FROM users WHERE id = ?')
+    .prepare('SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, settings_json FROM users WHERE id = ?')
     .get(id);
 
   writeAuditEvent({
@@ -316,22 +361,23 @@ app.post('/api/auth/register', (req, res) => {
     metadata: { role },
   });
 
-  return res.status(201).json({
-    user: publicUser(user),
-    settings: parseStoredSettings(settings),
-    featureFlags: getFeatureFlags(),
-  });
+  return res.status(201).json(authResponseForUser(user, settings));
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  assertPasswordAuthEnabled();
+  const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password ?? '');
 
   const user = db
-    .prepare('SELECT id, email, display_name, role, password_hash, settings_json FROM users WHERE email = ?')
+    .prepare(
+      `SELECT id, email, display_name, role, password_hash, auth_provider, auth_subject, account_status, settings_json
+       FROM users
+       WHERE email = ?`
+    )
     .get(email);
 
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+  if (!user || user.account_status !== 'active' || !canUsePasswordAuth(user) || !verifyPassword(password, user.password_hash)) {
     writeAuditEvent({
       eventType: 'auth.login_failed',
       level: 'warn',
@@ -346,6 +392,7 @@ app.post('/api/auth/login', (req, res) => {
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(resolvedRole, user.id);
     user.role = resolvedRole;
   }
+  db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id);
   const token = createSession(user.id);
 
   setSessionCookie(res, token);
@@ -357,11 +404,7 @@ app.post('/api/auth/login', (req, res) => {
     message: `User logged in: ${user.email}`,
   });
 
-  return res.json({
-    user: publicUser(user),
-    settings: parseStoredSettings(user.settings_json),
-    featureFlags: getFeatureFlags(),
-  });
+  return res.json(authResponseForUser(user));
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
@@ -382,11 +425,7 @@ app.get('/api/auth/session', requireAuth, (req, res) => {
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(resolvedRole, req.user.id);
     req.user.role = resolvedRole;
   }
-  res.json({
-    user: publicUser(req.user),
-    settings: parseStoredSettings(req.user.settings_json),
-    featureFlags: getFeatureFlags(),
-  });
+  res.json(authResponseForUser(req.user));
 });
 
 app.put('/api/settings', requireAuth, (req, res) => {
@@ -433,7 +472,9 @@ app.get('/api/admin/summary', requireAuth, requireAdmin, (_req, res) => {
   const counts = db.prepare(`
     SELECT
       COUNT(*) AS totalUsers,
-      SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS adminUsers
+      SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS adminUsers,
+      SUM(CASE WHEN auth_provider = 'local' THEN 1 ELSE 0 END) AS localUsers,
+      SUM(CASE WHEN account_status = 'active' THEN 1 ELSE 0 END) AS activeUsers
     FROM users
   `).get();
   const recentEvents = db.prepare(`
@@ -458,15 +499,18 @@ app.get('/api/admin/summary', requireAuth, requireAdmin, (_req, res) => {
     metrics: {
       totalUsers: Number(counts.totalUsers ?? 0),
       adminUsers: Number(counts.adminUsers ?? 0),
+      localUsers: Number(counts.localUsers ?? 0),
+      activeUsers: Number(counts.activeUsers ?? 0),
     },
     recentEvents,
+    auth: getAuthConfig(),
   });
 });
 
 app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
   const query = String(req.query.query ?? '').trim().toLowerCase();
   const sql = `
-    SELECT id, email, display_name, role, created_at
+    SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at
     FROM users
     WHERE (? = '' OR lower(email) LIKE ? OR lower(display_name) LIKE ?)
     ORDER BY created_at DESC
@@ -478,7 +522,10 @@ app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    authProvider: row.auth_provider,
+    accountStatus: row.account_status,
     createdAt: row.created_at,
+    lastLoginAt: row.last_login_at,
   }));
 
   res.json({ users });
@@ -601,9 +648,10 @@ app.get('/api/context/brief', requireAuth, async (req, res) => {
 });
 
 app.use((error, req, res, _next) => {
+  const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
   writeAuditEvent({
-    eventType: 'server.error',
-    level: 'error',
+    eventType: statusCode >= 500 ? 'server.error' : 'server.warning',
+    level: statusCode >= 500 ? 'error' : 'warn',
     actorUserId: req.user?.id ?? null,
     requestId: req.requestId ?? null,
     message: String(error?.message ?? error ?? 'Unhandled server error'),
@@ -612,7 +660,7 @@ app.use((error, req, res, _next) => {
   if (res.headersSent) {
     return;
   }
-  res.status(500).json({ error: 'Internal server error.' });
+  res.status(statusCode).json({ error: statusCode >= 500 ? 'Internal server error.' : String(error?.message ?? 'Request failed.') });
 });
 
 app.listen(PORT, () => {

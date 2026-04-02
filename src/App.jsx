@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AuthScreen } from './components/AuthScreen.jsx';
 import { OnboardingFlow } from './components/OnboardingFlow.jsx';
+import { useAdminData } from './hooks/useAdminData.js';
+import { useAuthSession } from './hooks/useAuthSession.js';
 import { api, reportClientError } from './lib/api.js';
 import {
   createTask,
@@ -17,7 +19,6 @@ import {
   circadianWindow,
 } from './lib/focusFlowCore.js';
 import {
-  DEFAULT_FEATURE_FLAGS,
   DEFAULT_SETTINGS,
   GOAL_OPTIONS,
   ROUTINE_OPTIONS,
@@ -28,21 +29,12 @@ import { ProfileView } from './views/ProfileView.jsx';
 import { SettingsView } from './views/SettingsView.jsx';
 
 export default function App() {
-  const [authChecked, setAuthChecked] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
-  const [authPending, setAuthPending] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [user, setUser] = useState(null);
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [featureFlags, setFeatureFlags] = useState(DEFAULT_FEATURE_FLAGS);
   const [saveStatus, setSaveStatus] = useState('Not saved yet');
   const [siteView, setSiteView] = useState('planner');
   const [menuOpen, setMenuOpen] = useState(false);
   const [phaseRemaining, setPhaseRemaining] = useState(DEFAULT_SETTINGS.phases[0].defaultMinutes * 60);
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [taskTimers, setTaskTimers] = useState({});
-  const browserTimeZone = getBrowserTimeZone();
-  const todayKey = getDateKey(settings.preferences?.timeZone || browserTimeZone);
   const [checkInDone, setCheckInDone] = useState(false);
   const [collapsedPhases, setCollapsedPhases] = useState(
     () => new Set(DEFAULT_SETTINGS.phases.map((p) => p.id).filter((id) => id !== DEFAULT_SETTINGS.activePhaseId))
@@ -61,21 +53,49 @@ export default function App() {
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [wakeHour, setWakeHour] = useState(null);
   const [profileExpanded, setProfileExpanded] = useState(false);
-  const [adminSummary, setAdminSummary] = useState({ flags: DEFAULT_FEATURE_FLAGS, metrics: null, recentEvents: [] });
-  const [adminUsers, setAdminUsers] = useState([]);
-  const [adminQuery, setAdminQuery] = useState('');
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [adminStatus, setAdminStatus] = useState('');
-  const [authForm, setAuthForm] = useState({
-    displayName: '',
-    email: '',
-    password: '',
-  });
   const phaseIntervalRef = useRef(null);
   const saveTimeoutRef = useRef(null);
   const menuRef = useRef(null);
-  const loadedSettingsRef = useRef(false);
   const locationTriedRef = useRef(false);
+  const {
+    authChecked,
+    authMode,
+    setAuthMode,
+    authPending,
+    authError,
+    authForm,
+    authConfig,
+    user,
+    settings,
+    setSettings,
+    featureFlags,
+    setFeatureFlags,
+    loadedSettingsRef,
+    handleAuthSubmit,
+    handleLogout,
+    updateAuthForm,
+  } = useAuthSession({
+    onAuthenticated: () => setSaveStatus('All changes saved'),
+    onSignedOut: () => setSaveStatus('Signed out'),
+  });
+  const browserTimeZone = getBrowserTimeZone();
+  const todayKey = getDateKey(settings.preferences?.timeZone || browserTimeZone);
+  const {
+    adminSummary,
+    adminUsers,
+    adminQuery,
+    adminLoading,
+    adminStatus,
+    setAdminQuery,
+    refreshAdminSummary,
+    searchAdminUsers,
+    toggleFeatureFlag,
+    resetUserState,
+  } = useAdminData({
+    user,
+    siteView,
+    onFeatureFlagsChange: setFeatureFlags,
+  });
 
   const activePhase = useMemo(
     () => settings.phases.find((phase) => phase.id === settings.activePhaseId) ?? settings.phases[0],
@@ -95,34 +115,6 @@ export default function App() {
     }
     return () => window.removeEventListener('mousedown', onDocumentClick);
   }, [menuOpen]);
-
-  useEffect(() => {
-    let cancelled = false;
-    api('/api/auth/session')
-      .then((data) => {
-        if (cancelled) {
-          return;
-        }
-        setUser(data.user);
-        setSettings(data.settings);
-        setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
-        setSaveStatus('All changes saved');
-        loadedSettingsRef.current = true;
-      })
-      .catch(() => {
-        if (!cancelled) {
-          loadedSettingsRef.current = false;
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setAuthChecked(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -345,15 +337,6 @@ export default function App() {
     setSettings((current) => ({ ...current, ...patch }));
   }
 
-  function updateActivePhase(patch) {
-    setSettings((current) => ({
-      ...current,
-      phases: current.phases.map((phase) =>
-        phase.id === current.activePhaseId ? { ...phase, ...patch } : phase
-      ),
-    }));
-  }
-
   function updateTasksInPhase(phaseId, updater) {
     setSettings((current) => ({
       ...current,
@@ -361,45 +344,6 @@ export default function App() {
         phase.id === phaseId ? { ...phase, tasks: updater(phase.tasks ?? []) } : phase
       ),
     }));
-  }
-
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
-    setAuthPending(true);
-    setAuthError('');
-    try {
-      const path = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const data = await api(path, {
-        method: 'POST',
-        body: JSON.stringify(authForm),
-      });
-      setUser(data.user);
-      setSettings(data.settings);
-      setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
-      loadedSettingsRef.current = true;
-      setAuthChecked(true);
-      setAuthForm({ displayName: '', email: '', password: '' });
-      setSaveStatus('All changes saved');
-    } catch (error) {
-      setAuthError(error.message);
-    } finally {
-      setAuthPending(false);
-    }
-  }
-
-  async function handleLogout() {
-    try {
-      await api('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore
-    }
-    loadedSettingsRef.current = false;
-    setUser(null);
-    setSettings(DEFAULT_SETTINGS);
-    setFeatureFlags(DEFAULT_FEATURE_FLAGS);
-    setAuthMode('login');
-    setAuthError('');
-    setSaveStatus('Signed out');
   }
 
   function handleStartPhase() {
@@ -631,22 +575,6 @@ export default function App() {
     setSettingsPatch({ routineType: nextType });
   }
 
-  function refreshContext() {
-    const lat = settings.preferences?.location?.latitude;
-    const lon = settings.preferences?.location?.longitude;
-    const timeZone = settings.preferences?.timeZone || 'UTC';
-    const params = new URLSearchParams({ timeZone });
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      params.set('lat', String(lat));
-      params.set('lon', String(lon));
-    }
-
-    setMindContext((current) => ({ ...current, loading: true, error: '' }));
-    api(`/api/context/brief?${params.toString()}`)
-      .then((data) => setMindContext({ loading: false, data, error: '' }))
-      .catch((error) => setMindContext({ loading: false, data: null, error: error.message }));
-  }
-
   function syncLocationNow() {
     if (!navigator.geolocation) {
       setLocationStatus('Geolocation is not available in this browser.');
@@ -674,77 +602,6 @@ export default function App() {
     );
   }
 
-  async function refreshAdminSummary() {
-    if (user?.role !== 'admin') {
-      return;
-    }
-    setAdminLoading(true);
-    setAdminStatus('');
-    try {
-      const data = await api('/api/admin/summary');
-      setAdminSummary(data);
-      setFeatureFlags(data.flags ?? DEFAULT_FEATURE_FLAGS);
-    } catch (error) {
-      setAdminStatus(error.message);
-    } finally {
-      setAdminLoading(false);
-    }
-  }
-
-  async function searchAdminUsers(nextQuery = adminQuery) {
-    if (user?.role !== 'admin') {
-      return;
-    }
-    setAdminLoading(true);
-    setAdminStatus('');
-    try {
-      const params = new URLSearchParams();
-      if (nextQuery.trim()) {
-        params.set('query', nextQuery.trim());
-      }
-      const data = await api(`/api/admin/users${params.toString() ? `?${params.toString()}` : ''}`);
-      setAdminUsers(data.users ?? []);
-    } catch (error) {
-      setAdminStatus(error.message);
-    } finally {
-      setAdminLoading(false);
-    }
-  }
-
-  async function toggleFeatureFlag(key, enabled) {
-    setAdminStatus('');
-    try {
-      const data = await api(`/api/admin/flags/${encodeURIComponent(key)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ enabled }),
-      });
-      setFeatureFlags(data.flags ?? DEFAULT_FEATURE_FLAGS);
-      setAdminSummary((current) => ({ ...current, flags: data.flags ?? DEFAULT_FEATURE_FLAGS }));
-    } catch (error) {
-      setAdminStatus(error.message);
-    }
-  }
-
-  async function resetUserState(targetUserId) {
-    setAdminStatus('');
-    try {
-      await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/reset`, {
-        method: 'POST',
-      });
-      setAdminStatus('User state reset.');
-      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
-    } catch (error) {
-      setAdminStatus(error.message);
-    }
-  }
-
-  useEffect(() => {
-    if (siteView === 'admin' && user?.role === 'admin') {
-      refreshAdminSummary();
-      searchAdminUsers('');
-    }
-  }, [siteView, user?.role]);
-
   useEffect(() => {
     if (!isFeatureEnabled('cycle_tracking') && onboardingStep === 1) {
       setOnboardingStep(2);
@@ -767,13 +624,9 @@ export default function App() {
       <AuthScreen
         mode={authMode}
         form={authForm}
+        authConfig={authConfig}
         onModeChange={setAuthMode}
-        onChange={(event) =>
-          setAuthForm((current) => ({
-            ...current,
-            [event.target.name]: event.target.value,
-          }))
-        }
+        onChange={updateAuthForm}
         onSubmit={handleAuthSubmit}
         authPending={authPending}
         authError={authError}

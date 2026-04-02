@@ -48,7 +48,14 @@ npm run dev
 
 - SQLite database path: `data/focus-flow.db`
 - Session state uses an HTTP-only cookie in the browser.
+- User records now track `auth_provider`, `auth_subject`, `account_status`, and `last_login_at` so local password auth can be swapped for managed auth later without rewriting the user model.
 - Local runtime artifacts should stay out of git and out of Docker build context.
+
+## Auth Mode
+
+- `AUTH_MODE=local` is the default for local development.
+- `AUTH_MODE=managed` disables password sign-in and registration in the UI/API so the app can be wired to a managed identity provider later.
+- `MANAGED_AUTH_PROVIDER` is an optional label shown in the UI/admin panel when managed mode is enabled.
 
 ## Change Management
 

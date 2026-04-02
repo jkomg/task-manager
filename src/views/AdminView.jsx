@@ -54,10 +54,22 @@ export function AdminView({
             <strong>{adminSummary.metrics?.adminUsers ?? 0}</strong>
           </div>
           <div className="admin-metric">
+            <span>Local auth users</span>
+            <strong>{adminSummary.metrics?.localUsers ?? 0}</strong>
+          </div>
+          <div className="admin-metric">
+            <span>Active accounts</span>
+            <strong>{adminSummary.metrics?.activeUsers ?? 0}</strong>
+          </div>
+          <div className="admin-metric">
             <span>Flags</span>
             <strong>{(adminSummary.flags ?? featureFlags).length}</strong>
           </div>
         </div>
+        <p className="muted-copy" style={{ marginTop: '0.75rem' }}>
+          Auth mode: {adminSummary.auth?.mode ?? 'local'}
+          {adminSummary.auth?.managedProvider ? ` · ${adminSummary.auth.managedProvider}` : ''}
+        </p>
       </div>
 
       <div className="admin-section">
@@ -87,7 +99,12 @@ export function AdminView({
             <div key={adminUser.id} className="admin-user-row">
               <div>
                 <strong>{adminUser.displayName}</strong>
-                <p className="muted-copy">{adminUser.email} · {adminUser.role}</p>
+                <p className="muted-copy">
+                  {adminUser.email} · {adminUser.role} · {adminUser.authProvider} · {adminUser.accountStatus}
+                </p>
+                {adminUser.lastLoginAt && (
+                  <p className="muted-copy">Last login {new Date(adminUser.lastLoginAt).toLocaleString()}</p>
+                )}
               </div>
               <button
                 className="ghost small"
