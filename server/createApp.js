@@ -171,6 +171,40 @@ export function createApp({
       }));
   }
 
+  function activeSessionCountForUser(userId, nowIso = new Date().toISOString()) {
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM sessions
+         WHERE user_id = ?
+           AND (expires_at IS NULL OR expires_at > ?)`
+      )
+      .get(userId, nowIso);
+    return Number(row?.count ?? 0);
+  }
+
+  function plannerStateSummaryForSettings(settingsJson) {
+    const settings = parseStoredSettings(settingsJson);
+    const phases = Array.isArray(settings?.phases) ? settings.phases : [];
+    const totalTasks = phases.reduce((sum, phase) => sum + (Array.isArray(phase.tasks) ? phase.tasks.length : 0), 0);
+    const completedTasks = phases.reduce(
+      (sum, phase) =>
+        sum + (Array.isArray(phase.tasks) ? phase.tasks.filter((task) => task.done).length : 0),
+      0
+    );
+    return {
+      routineType: settings?.routineType ?? 'session',
+      healthState: settings?.healthState ?? 'steady',
+      activePhaseId: settings?.activePhaseId ?? null,
+      phaseCount: phases.length,
+      totalTasks,
+      completedTasks,
+      setupComplete: Boolean(settings?.preferences?.setupComplete),
+      onboardingComplete: Boolean(settings?.preferences?.onboardingComplete),
+      lastResetDate: settings?.preferences?.lastResetDate ?? null,
+    };
+  }
+
   function authResponseForUser(user, settingsJson = user.settings_json) {
     return {
       user: publicUser(user),
@@ -477,7 +511,8 @@ export function createApp({
         COUNT(*) AS totalUsers,
         SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS adminUsers,
         SUM(CASE WHEN auth_provider = 'local' THEN 1 ELSE 0 END) AS localUsers,
-        SUM(CASE WHEN account_status = 'active' THEN 1 ELSE 0 END) AS activeUsers
+        SUM(CASE WHEN account_status = 'active' THEN 1 ELSE 0 END) AS activeUsers,
+        SUM(CASE WHEN account_status = 'suspended' THEN 1 ELSE 0 END) AS suspendedUsers
       FROM users
     `).get();
     const recentEvents = db.prepare(`
@@ -504,6 +539,7 @@ export function createApp({
         adminUsers: Number(counts.adminUsers ?? 0),
         localUsers: Number(counts.localUsers ?? 0),
         activeUsers: Number(counts.activeUsers ?? 0),
+        suspendedUsers: Number(counts.suspendedUsers ?? 0),
       },
       recentEvents,
       auth: getAuthConfig(),
@@ -512,26 +548,76 @@ export function createApp({
 
   app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
     const query = String(req.query.query ?? '').trim().toLowerCase();
+    const nowIso = new Date().toISOString();
     const sql = `
-      SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at
+      SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at,
+             (
+               SELECT COUNT(*)
+               FROM sessions
+               WHERE sessions.user_id = users.id
+                 AND (sessions.expires_at IS NULL OR sessions.expires_at > ?)
+             ) AS active_session_count
       FROM users
       WHERE (? = '' OR lower(email) LIKE ? OR lower(display_name) LIKE ?)
       ORDER BY created_at DESC
       LIMIT 50
     `;
     const likeQuery = `%${query}%`;
-    const users = db.prepare(sql).all(query, likeQuery, likeQuery).map((row) => ({
+    const users = db.prepare(sql).all(nowIso, query, likeQuery, likeQuery).map((row) => ({
       id: row.id,
       email: row.email,
       displayName: row.display_name,
       role: row.role,
       authProvider: row.auth_provider,
       accountStatus: row.account_status,
+      activeSessionCount: Number(row.active_session_count ?? 0),
       createdAt: row.created_at,
       lastLoginAt: row.last_login_at,
     }));
 
     res.json({ users });
+  });
+
+  app.get('/api/admin/users/:userId', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const nowIso = new Date().toISOString();
+    const target = db
+      .prepare(
+        `SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at, settings_json
+         FROM users
+         WHERE id = ?`
+      )
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const sessions = db
+      .prepare(
+        `SELECT token, created_at, expires_at
+         FROM sessions
+         WHERE user_id = ?
+           AND (expires_at IS NULL OR expires_at > ?)
+         ORDER BY created_at DESC
+         LIMIT 25`
+      )
+      .all(targetUserId, nowIso)
+      .map((row) => ({
+        tokenSuffix: String(row.token).slice(-8),
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+      }));
+
+    return res.json({
+      user: {
+        ...publicUser(target),
+        createdAt: target.created_at,
+        lastLoginAt: target.last_login_at,
+      },
+      activeSessionCount: activeSessionCountForUser(targetUserId, nowIso),
+      sessions,
+      plannerStateSummary: plannerStateSummaryForSettings(target.settings_json),
+    });
   });
 
   app.put('/api/admin/flags/:key', requireAuth, requireAdmin, (req, res) => {
@@ -584,6 +670,91 @@ export function createApp({
 
     res.json({
       ok: true,
+      user: publicUser(target),
+    });
+  });
+
+  app.put('/api/admin/users/:userId/status', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const nextStatus = String(req.body?.accountStatus ?? '').trim().toLowerCase();
+    if (!['active', 'suspended'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'accountStatus must be "active" or "suspended".' });
+    }
+    if (targetUserId === req.user.id && nextStatus !== 'active') {
+      return res.status(400).json({ error: 'Admin users cannot suspend their own account.' });
+    }
+
+    const target = db.prepare('SELECT id, email, display_name, role, auth_provider, account_status FROM users WHERE id = ?').get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (target.account_status === nextStatus) {
+      return res.json({
+        ok: true,
+        changed: false,
+        revokedSessions: 0,
+        user: publicUser({ ...target, account_status: nextStatus }),
+      });
+    }
+
+    const updatedAt = new Date().toISOString();
+    db.prepare('UPDATE users SET account_status = ? WHERE id = ?').run(nextStatus, targetUserId);
+    let revokedSessions = 0;
+    if (nextStatus === 'suspended') {
+      const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+      revokedSessions = Number(result.changes ?? 0);
+    }
+
+    writeAuditEvent({
+      eventType: 'admin.user_status_updated',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `User account ${nextStatus}: ${target.email}`,
+      metadata: { nextStatus, revokedSessions, updatedAt },
+    });
+
+    return res.json({
+      ok: true,
+      changed: true,
+      revokedSessions,
+      user: publicUser({ ...target, account_status: nextStatus }),
+    });
+  });
+
+  app.post('/api/admin/users/:userId/revoke-sessions', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const target = db.prepare('SELECT id, email, display_name, role, auth_provider, account_status FROM users WHERE id = ?').get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    let revokedSessions = 0;
+    let preservedCurrentSession = false;
+    if (targetUserId === req.user.id) {
+      const result = db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(targetUserId, req.sessionToken);
+      revokedSessions = Number(result.changes ?? 0);
+      preservedCurrentSession = true;
+    } else {
+      const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+      revokedSessions = Number(result.changes ?? 0);
+    }
+
+    writeAuditEvent({
+      eventType: 'admin.user_sessions_revoked',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `User sessions revoked by admin: ${target.email}`,
+      metadata: { revokedSessions, preservedCurrentSession },
+    });
+
+    return res.json({
+      ok: true,
+      revokedSessions,
+      preservedCurrentSession,
       user: publicUser(target),
     });
   });
