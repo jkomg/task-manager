@@ -422,6 +422,24 @@ test('admin can seed demo state and clear user activity', async () => {
     );
     assert.ok(seededOneOffCount > 0);
 
+    const seededAgain = await server.request(`/api/admin/users/${userId}/seed-demo`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(seededAgain.response.status, 200);
+    assert.equal(seededAgain.body.ok, true);
+    assert.equal(seededAgain.body.plannerStateSummary.totalTasks, seeded.body.plannerStateSummary.totalTasks);
+
+    const reseededSettingsRow = server.db
+      .prepare('SELECT settings_json FROM users WHERE id = ?')
+      .get(userId);
+    const reseededSettings = JSON.parse(reseededSettingsRow.settings_json);
+    const reseededOneOffCount = reseededSettings.phases.reduce(
+      (sum, phase) => sum + phase.tasks.filter((task) => task.type === 'oneoff').length,
+      0
+    );
+    assert.equal(reseededOneOffCount, seededOneOffCount);
+
     const cleared = await server.request(`/api/admin/users/${userId}/clear-activity`, {
       method: 'POST',
       headers: { cookie: adminCookie },

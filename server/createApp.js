@@ -244,16 +244,18 @@ export function createApp({
     const dateKey = new Date().toISOString().slice(0, 10);
     const nextPhases = current.phases.map((phase, phaseIndex) => ({
       ...phase,
-      tasks: phase.tasks.map((task, taskIndex) => ({
-        ...task,
-        done: phaseIndex === 0 ? taskIndex <= 1 : phaseIndex === 1 ? taskIndex === 0 : false,
-        carryCount: phaseIndex >= 2 && taskIndex === 0 ? 1 : 0,
-      })),
+      tasks: phase.tasks
+        .filter((task) => task.type === 'template')
+        .map((task, taskIndex) => ({
+          ...task,
+          done: phaseIndex === 0 ? taskIndex <= 1 : phaseIndex === 1 ? taskIndex === 0 : false,
+          carryCount: phaseIndex >= 2 && taskIndex === 0 ? 1 : 0,
+        })),
     }));
 
     if (nextPhases[0]) {
       nextPhases[0].tasks.push({
-        id: `task-${crypto.randomUUID()}`,
+        id: 'demo-task-inbox-sweep',
         title: 'Inbox sweep (demo)',
         done: false,
         minutes: 12,
@@ -263,7 +265,7 @@ export function createApp({
     }
     if (nextPhases[1]) {
       nextPhases[1].tasks.push({
-        id: `task-${crypto.randomUUID()}`,
+        id: 'demo-task-followup-email',
         title: 'Follow-up email block (demo)',
         done: false,
         minutes: 18,
