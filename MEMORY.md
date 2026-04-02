@@ -39,11 +39,14 @@ The current tone should stay calm, practical, and non-shaming. Guidance should f
 
 ## Architecture
 
-- Frontend: React + Vite in [src/App.jsx](/Users/jasonkennedy/Projects/task-manager/src/App.jsx)
+- Frontend: React + Vite with an app coordinator in [src/App.jsx](/Users/jasonkennedy/Projects/task-manager/src/App.jsx)
+- Planner/onboarding/admin/profile/settings are now split into focused views/components under [src/views](/Users/jasonkennedy/Projects/task-manager/src/views) and [src/components](/Users/jasonkennedy/Projects/task-manager/src/components)
+- Frontend session/admin state now lives in hooks under [src/hooks](/Users/jasonkennedy/Projects/task-manager/src/hooks)
 - Styling: single stylesheet in [src/styles.css](/Users/jasonkennedy/Projects/task-manager/src/styles.css)
 - Backend: Express API in [server/server.js](/Users/jasonkennedy/Projects/task-manager/server/server.js)
 - Persistence: SQLite via `better-sqlite3` in [server/db.js](/Users/jasonkennedy/Projects/task-manager/server/db.js)
 - Default user state normalization lives in [server/defaultState.js](/Users/jasonkennedy/Projects/task-manager/server/defaultState.js)
+- Auth/provider seam lives in [server/auth.js](/Users/jasonkennedy/Projects/task-manager/server/auth.js)
 
 ## Runtime Model
 
@@ -69,10 +72,11 @@ The current tone should stay calm, practical, and non-shaming. Guidance should f
 - Security posture is still lightweight because this is a local-first prototype, but obvious gaps should still be closed
 - Local admin/operator controls now live in-app and are meant to evolve into a hosted admin plane later
 - Near-term hosted direction assumes managed auth, but local development can keep first-party auth as a stand-in
+- User identity now has explicit provider/status fields so hosted auth can migrate without another schema rewrite
 
 ## Known Next Areas
 
 - move Docker from dev-mode runtime to a more production-like container path
-- add tests around auth/session expiry and daily reset logic
-- reduce the size and complexity of `src/App.jsx` by extracting focused components/hooks
+- add tests around auth/session expiry, auth-mode switching, and daily reset logic
+- keep shrinking `src/App.jsx` by pulling out planner state/timer logic next
 - decide how much of the circadian/cycle guidance should remain in-app versus linked or collapsible

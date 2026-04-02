@@ -13,41 +13,45 @@ const DEFAULT_FEATURE_FLAGS = [
   { key: 'proactive_suggestions', enabled: 1, description: 'Show proactive task recommendations after check-in.' },
 ];
 
-fs.mkdirSync(dataDir, { recursive: true });
-
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
+const USERS_TABLE_BODY = `
+  (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     display_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
+    auth_provider TEXT NOT NULL DEFAULT 'local',
+    auth_subject TEXT NOT NULL,
+    account_status TEXT NOT NULL DEFAULT 'active',
     settings_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
+    created_at TEXT NOT NULL,
+    last_login_at TEXT
+  )
+`;
 
-  CREATE TABLE IF NOT EXISTS sessions (
+const SESSIONS_TABLE_BODY = `
+  (
     token TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     expires_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
+  )
+`;
 
-  CREATE TABLE IF NOT EXISTS feature_flags (
+const FEATURE_FLAGS_TABLE_BODY = `
+  (
     key TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL,
     updated_by_user_id TEXT,
     FOREIGN KEY (updated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
-  );
+  )
+`;
 
-  CREATE TABLE IF NOT EXISTS audit_events (
+const AUDIT_EVENTS_TABLE_BODY = `
+  (
     id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL,
     level TEXT NOT NULL DEFAULT 'info',
@@ -59,15 +63,154 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
-  );
+  )
+`;
+
+fs.mkdirSync(dataDir, { recursive: true });
+
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users ${USERS_TABLE_BODY};
+
+  CREATE TABLE IF NOT EXISTS sessions ${SESSIONS_TABLE_BODY};
+
+  CREATE TABLE IF NOT EXISTS feature_flags ${FEATURE_FLAGS_TABLE_BODY};
+
+  CREATE TABLE IF NOT EXISTS audit_events ${AUDIT_EVENTS_TABLE_BODY};
 `);
 
-const userColumns = db.prepare('PRAGMA table_info(users)').all();
-const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all();
+function rebuildUsersTableIfNeeded() {
+  const userColumns = db.prepare('PRAGMA table_info(users)').all();
+  const columnNames = new Set(userColumns.map((column) => column.name));
+  const passwordHashColumn = userColumns.find((column) => column.name === 'password_hash');
+  const needsRebuild =
+    !columnNames.has('auth_provider') ||
+    !columnNames.has('auth_subject') ||
+    !columnNames.has('account_status') ||
+    !columnNames.has('last_login_at') ||
+    passwordHashColumn?.notnull === 1;
 
-if (!userColumns.some((column) => column.name === 'role')) {
-  db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+  if (!needsRebuild) {
+    return;
+  }
+
+  const roleExpression = columnNames.has('role') ? "COALESCE(role, 'user')" : "'user'";
+  const authProviderExpression = columnNames.has('auth_provider') ? "COALESCE(auth_provider, 'local')" : "'local'";
+  const authSubjectExpression = columnNames.has('auth_subject')
+    ? "COALESCE(auth_subject, email, id)"
+    : "COALESCE(email, id)";
+  const accountStatusExpression = columnNames.has('account_status')
+    ? "COALESCE(account_status, 'active')"
+    : "'active'";
+  const lastLoginExpression = columnNames.has('last_login_at') ? 'last_login_at' : 'NULL';
+  const passwordHashExpression = columnNames.has('password_hash') ? 'password_hash' : 'NULL';
+
+  const migrateUsers = db.transaction(() => {
+    db.pragma('foreign_keys = OFF');
+    db.exec('ALTER TABLE users RENAME TO users_legacy');
+    db.exec(`CREATE TABLE users ${USERS_TABLE_BODY}`);
+    db.exec(`
+      INSERT INTO users (
+        id,
+        email,
+        password_hash,
+        display_name,
+        role,
+        auth_provider,
+        auth_subject,
+        account_status,
+        settings_json,
+        created_at,
+        last_login_at
+      )
+      SELECT
+        id,
+        email,
+        ${passwordHashExpression},
+        display_name,
+        ${roleExpression},
+        ${authProviderExpression},
+        ${authSubjectExpression},
+        ${accountStatusExpression},
+        settings_json,
+        created_at,
+        ${lastLoginExpression}
+      FROM users_legacy
+    `);
+    db.exec('DROP TABLE users_legacy');
+    db.pragma('foreign_keys = ON');
+  });
+
+  migrateUsers();
 }
+
+rebuildUsersTableIfNeeded();
+
+function tableReferencesLegacyUsers(tableName) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+  return row?.sql?.includes('users_legacy') ?? false;
+}
+
+function rebuildUserForeignKeyTablesIfNeeded() {
+  const rebuildSessions = tableReferencesLegacyUsers('sessions');
+  const rebuildFeatureFlags = tableReferencesLegacyUsers('feature_flags');
+  const rebuildAuditEvents = tableReferencesLegacyUsers('audit_events');
+
+  if (!rebuildSessions && !rebuildFeatureFlags && !rebuildAuditEvents) {
+    return;
+  }
+
+  const rebuildTables = db.transaction(() => {
+    db.pragma('foreign_keys = OFF');
+
+    if (rebuildSessions) {
+      db.exec(`CREATE TABLE sessions_new ${SESSIONS_TABLE_BODY}`);
+      db.exec(`
+        INSERT INTO sessions_new (token, user_id, created_at, expires_at)
+        SELECT token, user_id, created_at, expires_at
+        FROM sessions
+      `);
+      db.exec('DROP TABLE sessions');
+      db.exec('ALTER TABLE sessions_new RENAME TO sessions');
+    }
+
+    if (rebuildFeatureFlags) {
+      db.exec(`CREATE TABLE feature_flags_new ${FEATURE_FLAGS_TABLE_BODY}`);
+      db.exec(`
+        INSERT INTO feature_flags_new (key, enabled, description, updated_at, updated_by_user_id)
+        SELECT key, enabled, description, updated_at, updated_by_user_id
+        FROM feature_flags
+      `);
+      db.exec('DROP TABLE feature_flags');
+      db.exec('ALTER TABLE feature_flags_new RENAME TO feature_flags');
+    }
+
+    if (rebuildAuditEvents) {
+      db.exec(`CREATE TABLE audit_events_new ${AUDIT_EVENTS_TABLE_BODY}`);
+      db.exec(`
+        INSERT INTO audit_events_new (
+          id, event_type, level, actor_user_id, target_user_id, request_id, message, metadata_json, created_at
+        )
+        SELECT
+          id, event_type, level, actor_user_id, target_user_id, request_id, message, metadata_json, created_at
+        FROM audit_events
+      `);
+      db.exec('DROP TABLE audit_events');
+      db.exec('ALTER TABLE audit_events_new RENAME TO audit_events');
+    }
+
+    db.pragma('foreign_keys = ON');
+  });
+
+  rebuildTables();
+}
+
+rebuildUserForeignKeyTablesIfNeeded();
+
+const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all();
 
 if (!sessionColumns.some((column) => column.name === 'expires_at')) {
   db.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');
@@ -77,6 +220,8 @@ if (!sessionColumns.some((column) => column.name === 'expires_at')) {
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+  CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_identity ON users(auth_provider, auth_subject);
   CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
   CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
