@@ -8,6 +8,11 @@ export function ProfileView({
   setSiteView,
   setSettings,
   isCycleTrackingEnabled,
+  authConfig,
+  adminBootstrapEligible,
+  adminClaimPending,
+  adminClaimStatus,
+  claimAdminAccess,
 }) {
   return (
     <section className="card">
@@ -84,6 +89,27 @@ export function ProfileView({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {user.role !== 'admin' && authConfig?.mode === 'local' && (
+        <div style={{ marginTop: '1rem' }}>
+          <p className="card-label">Admin access</p>
+          <p className="muted-copy">
+            {adminBootstrapEligible
+              ? 'No admin account exists yet. You can claim admin access for local testing.'
+              : 'An admin account already exists for this environment.'}
+          </p>
+          <div className="button-row" style={{ marginTop: '0.45rem' }}>
+            <button
+              className="ghost"
+              disabled={!adminBootstrapEligible || adminClaimPending}
+              onClick={claimAdminAccess}
+            >
+              {adminClaimPending ? 'Claiming admin access...' : 'Claim admin access'}
+            </button>
+          </div>
+          {adminClaimStatus && <p className="status-message">{adminClaimStatus}</p>}
         </div>
       )}
 

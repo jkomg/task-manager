@@ -71,6 +71,8 @@ The current tone should stay calm, practical, and non-shaming. Guidance should f
 - SQLite/runtime artifacts should never be committed
 - Security posture is still lightweight because this is a local-first prototype, but obvious gaps should still be closed
 - Local admin/operator controls now live in-app and are meant to evolve into a hosted admin plane later
+- Admin tools currently include feature flags, user inspect, suspend/reactivate, revoke sessions, reset state, demo seeding, and activity clearing
+- In local auth mode, if no admin exists yet, a signed-in user can claim admin from the Profile page
 - Near-term hosted direction assumes managed auth, but local development can keep first-party auth as a stand-in
 - User identity now has explicit provider/status fields so hosted auth can migrate without another schema rewrite
 

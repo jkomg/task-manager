@@ -65,6 +65,9 @@ export default function App() {
     authError,
     authForm,
     authConfig,
+    adminBootstrapEligible,
+    adminClaimPending,
+    adminClaimStatus,
     user,
     settings,
     setSettings,
@@ -72,6 +75,7 @@ export default function App() {
     setFeatureFlags,
     loadedSettingsRef,
     handleAuthSubmit,
+    claimAdminAccess,
     handleLogout,
     updateAuthForm,
   } = useAuthSession({
@@ -95,6 +99,8 @@ export default function App() {
     inspectUser,
     setUserAccountStatus,
     revokeUserSessions,
+    seedDemoState,
+    clearUserActivity,
   } = useAdminData({
     user,
     siteView,
@@ -716,6 +722,11 @@ export default function App() {
             setSiteView={setSiteView}
             setSettings={setSettings}
             isCycleTrackingEnabled={isFeatureEnabled('cycle_tracking')}
+            authConfig={authConfig}
+            adminBootstrapEligible={adminBootstrapEligible}
+            adminClaimPending={adminClaimPending}
+            adminClaimStatus={adminClaimStatus}
+            claimAdminAccess={claimAdminAccess}
           />
         )}
 
@@ -737,6 +748,8 @@ export default function App() {
             inspectUser={inspectUser}
             setUserAccountStatus={setUserAccountStatus}
             revokeUserSessions={revokeUserSessions}
+            seedDemoState={seedDemoState}
+            clearUserActivity={clearUserActivity}
           />
         )}
 

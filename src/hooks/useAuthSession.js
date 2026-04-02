@@ -22,6 +22,9 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
   const [authError, setAuthError] = useState('');
   const [authForm, setAuthForm] = useState(DEFAULT_AUTH_FORM);
   const [authConfig, setAuthConfig] = useState(DEFAULT_AUTH_CONFIG);
+  const [adminBootstrapEligible, setAdminBootstrapEligible] = useState(false);
+  const [adminClaimPending, setAdminClaimPending] = useState(false);
+  const [adminClaimStatus, setAdminClaimStatus] = useState('');
   const [user, setUser] = useState(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [featureFlags, setFeatureFlags] = useState(DEFAULT_FEATURE_FLAGS);
@@ -36,6 +39,17 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
   useEffect(() => {
     onSignedOutRef.current = onSignedOut;
   }, [onSignedOut]);
+
+  function applyAuthenticatedPayload(data, fallbackAuth = DEFAULT_AUTH_CONFIG) {
+    setUser(data.user);
+    setSettings(data.settings);
+    setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
+    setAuthConfig(data.auth ?? fallbackAuth);
+    setAdminBootstrapEligible(Boolean(data.adminBootstrapEligible));
+    loadedSettingsRef.current = true;
+    setAuthChecked(true);
+    onAuthenticatedRef.current?.(data);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -54,12 +68,7 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
         if (cancelled) {
           return;
         }
-        setUser(data.user);
-        setSettings(data.settings);
-        setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
-        setAuthConfig(data.auth ?? authMeta);
-        loadedSettingsRef.current = true;
-        onAuthenticatedRef.current?.(data);
+        applyAuthenticatedPayload(data, authMeta);
       } catch {
         if (!cancelled) {
           loadedSettingsRef.current = false;
@@ -91,18 +100,30 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
         method: 'POST',
         body: JSON.stringify(authForm),
       });
-      setUser(data.user);
-      setSettings(data.settings);
-      setFeatureFlags(data.featureFlags ?? DEFAULT_FEATURE_FLAGS);
-      setAuthConfig(data.auth ?? DEFAULT_AUTH_CONFIG);
-      loadedSettingsRef.current = true;
-      setAuthChecked(true);
+      applyAuthenticatedPayload(data);
       setAuthForm(DEFAULT_AUTH_FORM);
-      onAuthenticatedRef.current?.(data);
     } catch (error) {
       setAuthError(error.message);
     } finally {
       setAuthPending(false);
+    }
+  }
+
+  async function claimAdminAccess() {
+    setAdminClaimPending(true);
+    setAdminClaimStatus('');
+    try {
+      const data = await api('/api/auth/claim-admin', {
+        method: 'POST',
+      });
+      applyAuthenticatedPayload(data);
+      setAdminClaimStatus('Admin access enabled for this account.');
+      return true;
+    } catch (error) {
+      setAdminClaimStatus(error.message);
+      return false;
+    } finally {
+      setAdminClaimPending(false);
     }
   }
 
@@ -116,6 +137,9 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
     setUser(null);
     setSettings(DEFAULT_SETTINGS);
     setFeatureFlags(DEFAULT_FEATURE_FLAGS);
+    setAdminBootstrapEligible(false);
+    setAdminClaimPending(false);
+    setAdminClaimStatus('');
     setAuthMode('login');
     setAuthError('');
     onSignedOutRef.current?.();
@@ -136,6 +160,9 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
     authError,
     authForm,
     authConfig,
+    adminBootstrapEligible,
+    adminClaimPending,
+    adminClaimStatus,
     user,
     settings,
     setSettings,
@@ -143,6 +170,7 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
     setFeatureFlags,
     loadedSettingsRef,
     handleAuthSubmit,
+    claimAdminAccess,
     handleLogout,
     updateAuthForm,
   };

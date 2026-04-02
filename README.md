@@ -38,11 +38,17 @@ npm run dev
 - Local admin access is controlled by the `ADMIN_EMAILS` environment variable.
 - Example: `ADMIN_EMAILS=you@example.com,teammate@example.com`
 - Matching users are elevated to the `admin` role on register/login/session refresh.
+- If no admin exists yet in local auth mode, a signed-in user can claim admin access from the Profile page.
 - Admins get an in-app Admin page for:
   - toggling feature flags
   - viewing recent audit/error events
   - searching users
-  - resetting a test user's saved state and sessions
+  - inspecting user state and active sessions
+  - suspending/reactivating accounts
+  - revoking sessions
+  - resetting planner state
+  - seeding demo planner data
+  - clearing planner activity (while keeping the account)
 
 ## Local Data
 
