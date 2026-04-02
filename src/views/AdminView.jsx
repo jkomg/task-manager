@@ -15,6 +15,8 @@ export function AdminView({
   inspectUser,
   setUserAccountStatus,
   revokeUserSessions,
+  seedDemoState,
+  clearUserActivity,
 }) {
   function confirmAndRun(message, action) {
     if (!window.confirm(message)) {
@@ -164,6 +166,28 @@ export function AdminView({
                   }
                 >
                   {adminUser.id === user.id ? 'Current user' : 'Reset state'}
+                </button>
+                <button
+                  className="ghost small"
+                  onClick={() =>
+                    confirmAndRun(
+                      `Seed demo planner data for ${adminUser.email}?`,
+                      () => seedDemoState(adminUser.id)
+                    )
+                  }
+                >
+                  Seed demo
+                </button>
+                <button
+                  className="ghost small"
+                  onClick={() =>
+                    confirmAndRun(
+                      `Clear planner activity for ${adminUser.email}? One-off tasks and completion state will be removed.`,
+                      () => clearUserActivity(adminUser.id)
+                    )
+                  }
+                >
+                  Clear activity
                 </button>
               </div>
             </div>

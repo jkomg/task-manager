@@ -324,3 +324,127 @@ test('admin can inspect users and revoke sessions while preserving current admin
     await server.close();
   }
 });
+
+test('first local user can claim admin when no admin exists', async () => {
+  const server = await startTestServer({ name: 'focusflow-claim-admin' });
+  try {
+    const registration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Taylor',
+        email: 'taylor@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const cookie = readCookie(registration.response.headers.get('set-cookie'));
+    assert.equal(registration.body.user.role, 'user');
+    assert.equal(registration.body.adminBootstrapEligible, true);
+
+    const claimed = await server.request('/api/auth/claim-admin', {
+      method: 'POST',
+      headers: { cookie },
+    });
+    assert.equal(claimed.response.status, 200);
+    assert.equal(claimed.body.user.role, 'admin');
+    assert.equal(claimed.body.adminBootstrapEligible, false);
+
+    const secondUser = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Jordan',
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const secondCookie = readCookie(secondUser.response.headers.get('set-cookie'));
+    const denied = await server.request('/api/auth/claim-admin', {
+      method: 'POST',
+      headers: { cookie: secondCookie },
+    });
+    assert.equal(denied.response.status, 403);
+  } finally {
+    await server.close();
+  }
+});
+
+test('admin can seed demo state and clear user activity', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-seed-and-clear',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+
+    const userRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Jordan',
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const userId = userRegistration.body.user.id;
+
+    const seeded = await server.request(`/api/admin/users/${userId}/seed-demo`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(seeded.response.status, 200);
+    assert.equal(seeded.body.ok, true);
+    assert.equal(seeded.body.plannerStateSummary.setupComplete, true);
+    assert.equal(seeded.body.plannerStateSummary.onboardingComplete, true);
+    assert.ok(seeded.body.plannerStateSummary.totalTasks > 0);
+
+    const seededInspect = await server.request(`/api/admin/users/${userId}`, {
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(seededInspect.response.status, 200);
+    assert.equal(seededInspect.body.plannerStateSummary.completedTasks > 0, true);
+    const seededSettingsRow = server.db
+      .prepare('SELECT settings_json FROM users WHERE id = ?')
+      .get(userId);
+    const seededSettings = JSON.parse(seededSettingsRow.settings_json);
+    const seededOneOffCount = seededSettings.phases.reduce(
+      (sum, phase) => sum + phase.tasks.filter((task) => task.type === 'oneoff').length,
+      0
+    );
+    assert.ok(seededOneOffCount > 0);
+
+    const cleared = await server.request(`/api/admin/users/${userId}/clear-activity`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(cleared.response.status, 200);
+    assert.equal(cleared.body.ok, true);
+    assert.equal(cleared.body.plannerStateSummary.completedTasks, 0);
+
+    const clearedInspect = await server.request(`/api/admin/users/${userId}`, {
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(clearedInspect.response.status, 200);
+    assert.equal(clearedInspect.body.plannerStateSummary.completedTasks, 0);
+    const clearedSettingsRow = server.db
+      .prepare('SELECT settings_json FROM users WHERE id = ?')
+      .get(userId);
+    const clearedSettings = JSON.parse(clearedSettingsRow.settings_json);
+    const clearedOneOffCount = clearedSettings.phases.reduce(
+      (sum, phase) => sum + phase.tasks.filter((task) => task.type === 'oneoff').length,
+      0
+    );
+    assert.equal(clearedOneOffCount, 0);
+  } finally {
+    await server.close();
+  }
+});

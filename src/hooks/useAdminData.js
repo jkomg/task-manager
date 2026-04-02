@@ -145,6 +145,44 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     }
   }
 
+  async function seedDemoState(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/seed-demo`, {
+        method: 'POST',
+      });
+      setAdminStatus('Seeded demo planner state.');
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function clearUserActivity(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/clear-activity`, {
+        method: 'POST',
+      });
+      setAdminStatus('Cleared planner activity.');
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (siteView === 'admin' && user?.role === 'admin') {
       refreshAdminSummary();
@@ -168,5 +206,7 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     inspectUser,
     setUserAccountStatus,
     revokeUserSessions,
+    seedDemoState,
+    clearUserActivity,
   };
 }

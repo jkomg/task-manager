@@ -206,12 +206,89 @@ export function createApp({
   }
 
   function authResponseForUser(user, settingsJson = user.settings_json) {
+    const adminCount = Number(
+      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'").get()?.count ?? 0
+    );
     return {
       user: publicUser(user),
       settings: parseStoredSettings(settingsJson),
       featureFlags: getFeatureFlags(),
       auth: getAuthConfig(),
+      adminBootstrapEligible:
+        getAuthConfig().mode === 'local' &&
+        user.role !== 'admin' &&
+        adminCount === 0,
     };
+  }
+
+  function clearPlannerActivity(settingsJson) {
+    const current = parseStoredSettings(settingsJson);
+    return normalizeState({
+      ...current,
+      phases: current.phases.map((phase) => ({
+        ...phase,
+        tasks: phase.tasks
+          .filter((task) => task.type !== 'oneoff')
+          .map((task) => ({ ...task, done: false, carryCount: 0 })),
+      })),
+      healthState: 'steady',
+      preferences: {
+        ...(current.preferences ?? {}),
+        lastResetDate: null,
+      },
+    });
+  }
+
+  function seedDemoPlannerState(settingsJson) {
+    const current = parseStoredSettings(settingsJson);
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const nextPhases = current.phases.map((phase, phaseIndex) => ({
+      ...phase,
+      tasks: phase.tasks.map((task, taskIndex) => ({
+        ...task,
+        done: phaseIndex === 0 ? taskIndex <= 1 : phaseIndex === 1 ? taskIndex === 0 : false,
+        carryCount: phaseIndex >= 2 && taskIndex === 0 ? 1 : 0,
+      })),
+    }));
+
+    if (nextPhases[0]) {
+      nextPhases[0].tasks.push({
+        id: `task-${crypto.randomUUID()}`,
+        title: 'Inbox sweep (demo)',
+        done: false,
+        minutes: 12,
+        type: 'oneoff',
+        carryCount: 0,
+      });
+    }
+    if (nextPhases[1]) {
+      nextPhases[1].tasks.push({
+        id: `task-${crypto.randomUUID()}`,
+        title: 'Follow-up email block (demo)',
+        done: false,
+        minutes: 18,
+        type: 'oneoff',
+        carryCount: 0,
+      });
+    }
+
+    return normalizeState({
+      ...current,
+      phases: nextPhases,
+      activePhaseId: nextPhases[1]?.id ?? nextPhases[0]?.id ?? current.activePhaseId,
+      healthState: 'scattered',
+      routineType: 'session',
+      preferences: {
+        ...(current.preferences ?? {}),
+        setupComplete: true,
+        onboardingComplete: true,
+        goals:
+          Array.isArray(current.preferences?.goals) && current.preferences.goals.length > 0
+            ? current.preferences.goals
+            : ['writing', 'health'],
+        lastResetDate: dateKey,
+      },
+    });
   }
 
   function writeAuditEvent({
@@ -352,6 +429,38 @@ export function createApp({
 
   app.get('/api/auth/config', (_req, res) => {
     res.json({ auth: getAuthConfig() });
+  });
+
+  app.post('/api/auth/claim-admin', requireAuth, (req, res) => {
+    if (getAuthConfig().mode !== 'local') {
+      return res.status(403).json({ error: 'Admin bootstrap is disabled for managed auth mode.' });
+    }
+
+    const adminCount = Number(
+      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'").get()?.count ?? 0
+    );
+    if (adminCount > 0 && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'An admin account already exists. Ask an admin for access.' });
+    }
+
+    if (req.user.role !== 'admin') {
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(req.user.id);
+      req.user.role = 'admin';
+      writeAuditEvent({
+        eventType: 'auth.admin_bootstrap_claimed',
+        level: 'warn',
+        actorUserId: req.user.id,
+        requestId: req.requestId,
+        message: `Admin bootstrap claimed by ${req.user.email}`,
+      });
+    }
+
+    const user = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, settings_json FROM users WHERE id = ?'
+      )
+      .get(req.user.id);
+    return res.json(authResponseForUser(user));
   });
 
   app.post('/api/auth/register', (req, res) => {
@@ -671,6 +780,64 @@ export function createApp({
     res.json({
       ok: true,
       user: publicUser(target),
+    });
+  });
+
+  app.post('/api/admin/users/:userId/seed-demo', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const target = db
+      .prepare('SELECT id, email, display_name, role, auth_provider, account_status, settings_json FROM users WHERE id = ?')
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const seededState = seedDemoPlannerState(target.settings_json);
+    db.prepare('UPDATE users SET settings_json = ? WHERE id = ?')
+      .run(JSON.stringify(seededState), targetUserId);
+
+    writeAuditEvent({
+      eventType: 'admin.user_seeded_demo',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `Demo planner state seeded by admin: ${target.email}`,
+    });
+
+    return res.json({
+      ok: true,
+      user: publicUser(target),
+      plannerStateSummary: plannerStateSummaryForSettings(JSON.stringify(seededState)),
+    });
+  });
+
+  app.post('/api/admin/users/:userId/clear-activity', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const target = db
+      .prepare('SELECT id, email, display_name, role, auth_provider, account_status, settings_json FROM users WHERE id = ?')
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const clearedState = clearPlannerActivity(target.settings_json);
+    db.prepare('UPDATE users SET settings_json = ? WHERE id = ?')
+      .run(JSON.stringify(clearedState), targetUserId);
+
+    writeAuditEvent({
+      eventType: 'admin.user_activity_cleared',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `Planner activity cleared by admin: ${target.email}`,
+    });
+
+    return res.json({
+      ok: true,
+      user: publicUser(target),
+      plannerStateSummary: plannerStateSummaryForSettings(JSON.stringify(clearedState)),
     });
   });
 
