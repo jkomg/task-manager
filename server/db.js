@@ -2,9 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
-const dataDir = path.resolve('data');
-const dbPath = path.join(dataDir, 'focus-flow.db');
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+export const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+
+const DEFAULT_DATA_DIR = path.resolve('data');
+const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'focus-flow.db');
+
 const DEFAULT_FEATURE_FLAGS = [
   { key: 'daily_check_in', enabled: 1, description: 'Show the daily wake-time and body-state check-in flow.' },
   { key: 'mind_context', enabled: 1, description: 'Show weather, circadian context, and related recommendations.' },
@@ -66,23 +68,7 @@ const AUDIT_EVENTS_TABLE_BODY = `
   )
 `;
 
-fs.mkdirSync(dataDir, { recursive: true });
-
-const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users ${USERS_TABLE_BODY};
-
-  CREATE TABLE IF NOT EXISTS sessions ${SESSIONS_TABLE_BODY};
-
-  CREATE TABLE IF NOT EXISTS feature_flags ${FEATURE_FLAGS_TABLE_BODY};
-
-  CREATE TABLE IF NOT EXISTS audit_events ${AUDIT_EVENTS_TABLE_BODY};
-`);
-
-function getTableColumns(tableName) {
+function getTableColumns(db, tableName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all();
 }
 
@@ -91,14 +77,14 @@ function computeSessionExpiry(createdAt) {
   return new Date(createdAtMs + SESSION_TTL_MS).toISOString();
 }
 
-function legacyUsersTableExists() {
+function legacyUsersTableExists(db) {
   return Boolean(
     db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users_legacy'").get()
   );
 }
 
-function rebuildUsersTableIfNeeded() {
-  const userColumns = getTableColumns('users');
+function rebuildUsersTableIfNeeded(db) {
+  const userColumns = getTableColumns(db, 'users');
   const columnNames = new Set(userColumns.map((column) => column.name));
   const passwordHashColumn = userColumns.find((column) => column.name === 'password_hash');
   const needsRebuild =
@@ -161,23 +147,21 @@ function rebuildUsersTableIfNeeded() {
   migrateUsers();
 }
 
-rebuildUsersTableIfNeeded();
-
-function tableReferencesLegacyUsers(tableName) {
+function tableReferencesLegacyUsers(db, tableName) {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
   return row?.sql?.includes('users_legacy') ?? false;
 }
 
-function rebuildUserForeignKeyTablesIfNeeded() {
-  const rebuildSessions = tableReferencesLegacyUsers('sessions');
-  const rebuildFeatureFlags = tableReferencesLegacyUsers('feature_flags');
-  const rebuildAuditEvents = tableReferencesLegacyUsers('audit_events');
+function rebuildUserForeignKeyTablesIfNeeded(db) {
+  const rebuildSessions = tableReferencesLegacyUsers(db, 'sessions');
+  const rebuildFeatureFlags = tableReferencesLegacyUsers(db, 'feature_flags');
+  const rebuildAuditEvents = tableReferencesLegacyUsers(db, 'audit_events');
 
   if (!rebuildSessions && !rebuildFeatureFlags && !rebuildAuditEvents) {
     return;
   }
 
-  const sessionColumnNames = new Set(getTableColumns('sessions').map((column) => column.name));
+  const sessionColumnNames = new Set(getTableColumns(db, 'sessions').map((column) => column.name));
   const sessionExpiresExpression = sessionColumnNames.has('expires_at') ? 'expires_at' : 'NULL';
 
   const rebuildTables = db.transaction(() => {
@@ -225,59 +209,99 @@ function rebuildUserForeignKeyTablesIfNeeded() {
   rebuildTables();
 }
 
-rebuildUserForeignKeyTablesIfNeeded();
+function dropLegacyUsersTableIfPresent(db) {
+  if (!legacyUsersTableExists(db)) {
+    return;
+  }
 
-if (legacyUsersTableExists()) {
   const dropLegacyUsersTable = db.transaction(() => {
     db.pragma('foreign_keys = OFF');
     db.exec('DROP TABLE users_legacy');
     db.pragma('foreign_keys = ON');
   });
+
   dropLegacyUsersTable();
 }
 
-const sessionColumns = getTableColumns('sessions');
+function ensureSessionExpiryColumn(db) {
+  const sessionColumns = getTableColumns(db, 'sessions');
+  if (!sessionColumns.some((column) => column.name === 'expires_at')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');
+  }
 
-if (!sessionColumns.some((column) => column.name === 'expires_at')) {
-  db.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');
-}
+  const sessionsMissingExpiry = db
+    .prepare('SELECT token, created_at FROM sessions WHERE expires_at IS NULL')
+    .all();
 
-const sessionsMissingExpiry = db
-  .prepare('SELECT token, created_at FROM sessions WHERE expires_at IS NULL')
-  .all();
+  if (sessionsMissingExpiry.length === 0) {
+    return;
+  }
 
-if (sessionsMissingExpiry.length > 0) {
   const updateSessionExpiry = db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?');
   const backfillSessionExpiry = db.transaction((rows) => {
     for (const row of rows) {
       updateSessionExpiry.run(computeSessionExpiry(row.created_at), row.token);
     }
   });
+
   backfillSessionExpiry(sessionsMissingExpiry);
 }
 
-db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-  CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_identity ON users(auth_provider, auth_subject);
-  CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-  CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
-  CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
-  CREATE INDEX IF NOT EXISTS idx_audit_events_actor_user_id ON audit_events(actor_user_id);
-  CREATE INDEX IF NOT EXISTS idx_audit_events_target_user_id ON audit_events(target_user_id);
-`);
-
-const upsertFeatureFlag = db.prepare(`
-  INSERT INTO feature_flags (key, enabled, description, updated_at, updated_by_user_id)
-  VALUES (@key, @enabled, @description, @updated_at, NULL)
-  ON CONFLICT(key) DO UPDATE SET
-    description = excluded.description
-`);
-
-const nowIso = new Date().toISOString();
-for (const flag of DEFAULT_FEATURE_FLAGS) {
-  upsertFeatureFlag.run({ ...flag, updated_at: nowIso });
+function ensureIndexes(db) {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+    CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_identity ON users(auth_provider, auth_subject);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_actor_user_id ON audit_events(actor_user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_target_user_id ON audit_events(target_user_id);
+  `);
 }
+
+function seedFeatureFlags(db) {
+  const upsertFeatureFlag = db.prepare(`
+    INSERT INTO feature_flags (key, enabled, description, updated_at, updated_by_user_id)
+    VALUES (@key, @enabled, @description, @updated_at, NULL)
+    ON CONFLICT(key) DO UPDATE SET
+      description = excluded.description
+  `);
+
+  const nowIso = new Date().toISOString();
+  for (const flag of DEFAULT_FEATURE_FLAGS) {
+    upsertFeatureFlag.run({ ...flag, updated_at: nowIso });
+  }
+}
+
+export function initializeDatabase(db) {
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users ${USERS_TABLE_BODY};
+    CREATE TABLE IF NOT EXISTS sessions ${SESSIONS_TABLE_BODY};
+    CREATE TABLE IF NOT EXISTS feature_flags ${FEATURE_FLAGS_TABLE_BODY};
+    CREATE TABLE IF NOT EXISTS audit_events ${AUDIT_EVENTS_TABLE_BODY};
+  `);
+
+  rebuildUsersTableIfNeeded(db);
+  rebuildUserForeignKeyTablesIfNeeded(db);
+  dropLegacyUsersTableIfPresent(db);
+  ensureSessionExpiryColumn(db);
+  ensureIndexes(db);
+  seedFeatureFlags(db);
+
+  return db;
+}
+
+export function createDatabase(dbPath = DEFAULT_DB_PATH) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  return initializeDatabase(db);
+}
+
+const db = createDatabase();
 
 export default db;
