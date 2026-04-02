@@ -82,8 +82,23 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS audit_events ${AUDIT_EVENTS_TABLE_BODY};
 `);
 
+function getTableColumns(tableName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all();
+}
+
+function computeSessionExpiry(createdAt) {
+  const createdAtMs = Number.isFinite(Date.parse(createdAt)) ? Date.parse(createdAt) : Date.now();
+  return new Date(createdAtMs + SESSION_TTL_MS).toISOString();
+}
+
+function legacyUsersTableExists() {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users_legacy'").get()
+  );
+}
+
 function rebuildUsersTableIfNeeded() {
-  const userColumns = db.prepare('PRAGMA table_info(users)').all();
+  const userColumns = getTableColumns('users');
   const columnNames = new Set(userColumns.map((column) => column.name));
   const passwordHashColumn = userColumns.find((column) => column.name === 'password_hash');
   const needsRebuild =
@@ -140,7 +155,6 @@ function rebuildUsersTableIfNeeded() {
         ${lastLoginExpression}
       FROM users_legacy
     `);
-    db.exec('DROP TABLE users_legacy');
     db.pragma('foreign_keys = ON');
   });
 
@@ -163,6 +177,9 @@ function rebuildUserForeignKeyTablesIfNeeded() {
     return;
   }
 
+  const sessionColumnNames = new Set(getTableColumns('sessions').map((column) => column.name));
+  const sessionExpiresExpression = sessionColumnNames.has('expires_at') ? 'expires_at' : 'NULL';
+
   const rebuildTables = db.transaction(() => {
     db.pragma('foreign_keys = OFF');
 
@@ -170,7 +187,7 @@ function rebuildUserForeignKeyTablesIfNeeded() {
       db.exec(`CREATE TABLE sessions_new ${SESSIONS_TABLE_BODY}`);
       db.exec(`
         INSERT INTO sessions_new (token, user_id, created_at, expires_at)
-        SELECT token, user_id, created_at, expires_at
+        SELECT token, user_id, created_at, ${sessionExpiresExpression}
         FROM sessions
       `);
       db.exec('DROP TABLE sessions');
@@ -210,12 +227,33 @@ function rebuildUserForeignKeyTablesIfNeeded() {
 
 rebuildUserForeignKeyTablesIfNeeded();
 
-const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all();
+if (legacyUsersTableExists()) {
+  const dropLegacyUsersTable = db.transaction(() => {
+    db.pragma('foreign_keys = OFF');
+    db.exec('DROP TABLE users_legacy');
+    db.pragma('foreign_keys = ON');
+  });
+  dropLegacyUsersTable();
+}
+
+const sessionColumns = getTableColumns('sessions');
 
 if (!sessionColumns.some((column) => column.name === 'expires_at')) {
   db.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');
-  db.prepare('UPDATE sessions SET expires_at = ? WHERE expires_at IS NULL')
-    .run(new Date(Date.now() + SESSION_TTL_MS).toISOString());
+}
+
+const sessionsMissingExpiry = db
+  .prepare('SELECT token, created_at FROM sessions WHERE expires_at IS NULL')
+  .all();
+
+if (sessionsMissingExpiry.length > 0) {
+  const updateSessionExpiry = db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?');
+  const backfillSessionExpiry = db.transaction((rows) => {
+    for (const row of rows) {
+      updateSessionExpiry.run(computeSessionExpiry(row.created_at), row.token);
+    }
+  });
+  backfillSessionExpiry(sessionsMissingExpiry);
 }
 
 db.exec(`
