@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   formatClockFromIso,
   formatDateLong,
@@ -28,6 +29,8 @@ export function PlannerView({
   editingTaskId,
   editTitle,
   editMinutes,
+  editDetails,
+  applyDetailsToMatchingTemplates,
   collapsedPhases,
   quickAddInputs,
   checkInDone,
@@ -53,6 +56,8 @@ export function PlannerView({
   setQuickAddInputs,
   setEditTitle,
   setEditMinutes,
+  setEditDetails,
+  setApplyDetailsToMatchingTemplates,
   togglePhaseCollapsed,
   handleStartPhase,
   handlePausePhase,
@@ -73,6 +78,20 @@ export function PlannerView({
   isFeatureEnabled,
   setRoutineOverridden,
 }) {
+  const [expandedTaskDetails, setExpandedTaskDetails] = useState(() => new Set());
+
+  function toggleTaskDetails(taskId) {
+    setExpandedTaskDetails((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
   return (
     <>
       {isFeatureEnabled('mind_context') && (
@@ -139,7 +158,10 @@ export function PlannerView({
             editingTaskId={editingTaskId}
             editTitle={editTitle}
             editMinutes={editMinutes}
+            editDetails={editDetails}
+            applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
+            expandedTaskDetails={expandedTaskDetails}
             quickAddInputs={quickAddInputs}
             phaseRemaining={phaseRemaining}
             phaseRunning={phaseRunning}
@@ -149,6 +171,9 @@ export function PlannerView({
             setQuickAddInputs={setQuickAddInputs}
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
+            setEditDetails={setEditDetails}
+            setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
+            toggleTaskDetails={toggleTaskDetails}
             setSettingsPatch={setSettingsPatch}
             togglePhaseCollapsed={togglePhaseCollapsed}
             handleStartPhase={handleStartPhase}
@@ -431,7 +456,10 @@ function PhaseSection({
   editingTaskId,
   editTitle,
   editMinutes,
+  editDetails,
+  applyDetailsToMatchingTemplates,
   collapsedPhases,
+  expandedTaskDetails,
   quickAddInputs,
   phaseRemaining,
   phaseRunning,
@@ -441,6 +469,9 @@ function PhaseSection({
   setQuickAddInputs,
   setEditTitle,
   setEditMinutes,
+  setEditDetails,
+  setApplyDetailsToMatchingTemplates,
+  toggleTaskDetails,
   setSettingsPatch,
   togglePhaseCollapsed,
   handleStartPhase,
@@ -520,6 +551,11 @@ function PhaseSection({
               const timerRunning = timer?.running ?? false;
               const timerSeconds = timer?.seconds ?? 0;
               const isEditing = editingTaskId === task.id;
+              const detailsExpanded = expandedTaskDetails.has(task.id);
+              const detailLines = String(task.details ?? '')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean);
               const taskFit = getTaskFit(task, activeProfile);
 
               return (
@@ -536,6 +572,21 @@ function PhaseSection({
                         value={editMinutes}
                         onChange={(event) => setEditMinutes(event.target.value)}
                       />
+                      <textarea
+                        className="task-details-input"
+                        rows={4}
+                        placeholder="Task details/actions (one per line)"
+                        value={editDetails}
+                        onChange={(event) => setEditDetails(event.target.value)}
+                      />
+                      <label className="task-edit-scope">
+                        <input
+                          type="checkbox"
+                          checked={applyDetailsToMatchingTemplates}
+                          onChange={(event) => setApplyDetailsToMatchingTemplates(event.target.checked)}
+                        />
+                        Apply details to matching repeating tasks by name
+                      </label>
                       <button type="submit">Save</button>
                       <button type="button" className="ghost" onClick={cancelEditTask}>
                         Cancel
@@ -569,6 +620,26 @@ function PhaseSection({
                               {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}
                               {' · '}{task.minutes}m total
                             </span>
+                          )}
+                        </div>
+                        <div className="task-details">
+                          <button
+                            className="ghost small task-details-toggle"
+                            onClick={() => toggleTaskDetails(task.id)}
+                            type="button"
+                          >
+                            {detailsExpanded ? 'Hide actions' : `Show actions${detailLines.length > 0 ? ` (${detailLines.length})` : ''}`}
+                          </button>
+                          {detailsExpanded && (
+                            detailLines.length > 0 ? (
+                              <ul className="task-detail-list">
+                                {detailLines.map((line, index) => (
+                                  <li key={`${task.id}-detail-${index}`}>{line}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="muted-copy">No actions added yet. Use Edit to add task details.</p>
+                            )
                           )}
                         </div>
                       </div>

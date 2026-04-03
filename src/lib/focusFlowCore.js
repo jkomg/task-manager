@@ -11,7 +11,7 @@ export function formatSeconds(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function createTask(title, minutes = null, type = 'oneoff') {
+export function createTask(title, minutes = null, type = 'oneoff', details = '') {
   const uuid = typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -22,6 +22,7 @@ export function createTask(title, minutes = null, type = 'oneoff') {
     minutes,
     type,
     carryCount: 0,
+    details: typeof details === 'string' ? details.trim() : '',
   };
 }
 

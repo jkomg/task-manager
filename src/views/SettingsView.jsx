@@ -10,6 +10,8 @@ export function SettingsView({
   deleteTask,
   addTemplateTaskToPhase,
   insertPhaseAt,
+  updateTaskDetailsInPhase,
+  applyTaskDetailsToMatchingTemplates,
 }) {
   return (
     <section className="card">
@@ -55,9 +57,27 @@ export function SettingsView({
               <p className="field-label">Repeating tasks</p>
               {phase.tasks.filter((task) => task.type === 'template').map((task) => (
                 <div key={task.id} className="settings-template-task-row">
-                  <span className="settings-template-task-title">{task.title}</span>
-                  {task.minutes && <span className="muted-copy">{task.minutes}m</span>}
-                  <button className="ghost small danger-text" onClick={() => deleteTask(phase.id, task.id)}>x</button>
+                  <div className="settings-template-header">
+                    <span className="settings-template-task-title">{task.title}</span>
+                    {task.minutes && <span className="muted-copy">{task.minutes}m</span>}
+                    <button className="ghost small danger-text" onClick={() => deleteTask(phase.id, task.id)}>x</button>
+                  </div>
+                  <textarea
+                    className="settings-template-details-input"
+                    rows={3}
+                    placeholder="Add action details for this task (one action per line)."
+                    value={task.details ?? ''}
+                    onChange={(event) => updateTaskDetailsInPhase(phase.id, task.id, event.target.value)}
+                  />
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => applyTaskDetailsToMatchingTemplates(task.title, task.details ?? '')}
+                    >
+                      Apply details to matching repeating tasks
+                    </button>
+                  </div>
                 </div>
               ))}
               <form

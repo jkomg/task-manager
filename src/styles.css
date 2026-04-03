@@ -728,6 +728,21 @@ h3 {
   width: 6rem;
 }
 
+.task-edit-form .task-details-input {
+  width: 100%;
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.task-edit-scope {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .danger-text {
   color: var(--danger);
 }
@@ -788,6 +803,23 @@ h3 {
 .task-duration {
   font-size: 0.76rem;
   color: var(--muted);
+}
+
+.task-details {
+  margin-top: 0.3rem;
+}
+
+.task-details-toggle {
+  padding-left: 0;
+}
+
+.task-detail-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .task-timer-running {
@@ -1543,13 +1575,18 @@ h3 {
 }
 
 .settings-template-task-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.45rem;
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
+}
+
+.settings-template-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .settings-template-task-title {
@@ -1557,6 +1594,22 @@ h3 {
   font-size: 0.85rem;
   color: var(--ink);
   min-width: 0;
+}
+
+.settings-template-details-input {
+  width: 100%;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.settings-template-details-input:focus {
+  outline: none;
+  border-color: rgba(90, 170, 200, 0.4);
 }
 
 .settings-template-add input {

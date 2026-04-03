@@ -43,6 +43,8 @@ export default function App() {
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editMinutes, setEditMinutes] = useState('');
+  const [editDetails, setEditDetails] = useState('');
+  const [applyDetailsToMatchingTemplates, setApplyDetailsToMatchingTemplates] = useState(false);
   const [setupDraft, setSetupDraft] = useState({});
   const [routineOverridden, setRoutineOverridden] = useState(false);
   const [templateAddInputs, setTemplateAddInputs] = useState({});
@@ -393,28 +395,83 @@ export default function App() {
     updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null, 'template')]);
   }
 
+  function updateTaskDetailsInPhase(phaseId, taskId, details) {
+    const normalizedDetails = String(details ?? '').trim();
+    updateTasksInPhase(phaseId, (tasks) =>
+      tasks.map((task) => (task.id === taskId ? { ...task, details: normalizedDetails } : task))
+    );
+  }
+
+  function applyTaskDetailsToMatchingTemplates(title, details) {
+    const normalizedTitle = String(title ?? '').trim().toLowerCase();
+    const normalizedDetails = String(details ?? '').trim();
+    if (!normalizedTitle) {
+      return;
+    }
+    setSettings((current) => ({
+      ...current,
+      phases: current.phases.map((phase) => ({
+        ...phase,
+        tasks: (phase.tasks ?? []).map((task) =>
+          task.type === 'template' && String(task.title ?? '').trim().toLowerCase() === normalizedTitle
+            ? { ...task, details: normalizedDetails }
+            : task
+        ),
+      })),
+    }));
+  }
+
   function startEditTask(task) {
     setEditingTaskId(task.id);
     setEditTitle(task.title);
     setEditMinutes(task.minutes != null ? String(task.minutes) : '');
+    setEditDetails(task.details ?? '');
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function saveEditTask(phaseId, taskId) {
     const title = editTitle.trim();
     if (!title) return;
     const parsedMinutes = Number(editMinutes);
-    updateTasksInPhase(phaseId, (tasks) =>
-      tasks.map((t) =>
-        t.id === taskId
-          ? { ...t, title, minutes: Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null }
-          : t
-      )
-    );
+    const normalizedDetails = String(editDetails ?? '').trim();
+    setSettings((current) => {
+      const targetTask = current.phases
+        .flatMap((phase) => phase.tasks ?? [])
+        .find((task) => task.id === taskId);
+      const matchingTitle = String(targetTask?.title ?? title).trim().toLowerCase();
+
+      return {
+        ...current,
+        phases: current.phases.map((phase) => ({
+          ...phase,
+          tasks: (phase.tasks ?? []).map((task) => {
+            if (task.id === taskId) {
+              return {
+                ...task,
+                title,
+                minutes: Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null,
+                details: normalizedDetails,
+              };
+            }
+            if (
+              applyDetailsToMatchingTemplates &&
+              task.type === 'template' &&
+              String(task.title ?? '').trim().toLowerCase() === matchingTitle
+            ) {
+              return { ...task, details: normalizedDetails };
+            }
+            return task;
+          }),
+        })),
+      };
+    });
     setEditingTaskId(null);
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function cancelEditTask() {
     setEditingTaskId(null);
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function deleteTask(phaseId, taskId) {
@@ -766,6 +823,8 @@ export default function App() {
             deleteTask={deleteTask}
             addTemplateTaskToPhase={addTemplateTaskToPhase}
             insertPhaseAt={insertPhaseAt}
+            updateTaskDetailsInPhase={updateTaskDetailsInPhase}
+            applyTaskDetailsToMatchingTemplates={applyTaskDetailsToMatchingTemplates}
           />
         )}
 
@@ -792,6 +851,8 @@ export default function App() {
             editingTaskId={editingTaskId}
             editTitle={editTitle}
             editMinutes={editMinutes}
+            editDetails={editDetails}
+            applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
             quickAddInputs={quickAddInputs}
             checkInDone={checkInDone}
@@ -817,6 +878,8 @@ export default function App() {
             setQuickAddInputs={setQuickAddInputs}
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
+            setEditDetails={setEditDetails}
+            setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
             togglePhaseCollapsed={togglePhaseCollapsed}
             handleStartPhase={handleStartPhase}
             handlePausePhase={handlePausePhase}

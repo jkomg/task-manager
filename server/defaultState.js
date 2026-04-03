@@ -106,6 +106,7 @@ export function normalizeState(input) {
                     Number.isFinite(Number(task.carryCount)) && Number(task.carryCount) >= 0
                       ? Number(task.carryCount)
                       : 0,
+                  details: typeof task.details === 'string' ? task.details.trim() : '',
                 }))
             : [],
         }))
