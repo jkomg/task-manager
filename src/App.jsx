@@ -479,10 +479,8 @@ export default function App() {
     const parsedMinutes = Number(editMinutes);
     const normalizedDetails = String(editDetails ?? '').trim();
     setSettings((current) => {
-      const targetTask = current.phases
-        .flatMap((phase) => phase.tasks ?? [])
-        .find((task) => task.id === taskId);
-      const matchingTitle = String(targetTask?.title ?? title).trim().toLowerCase();
+      // Match propagation by the edited title so rename + apply behaves predictably.
+      const matchingTitle = String(title).trim().toLowerCase();
 
       return {
         ...current,
