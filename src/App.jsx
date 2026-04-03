@@ -15,6 +15,7 @@ import {
   getProactiveTask,
   getSuggestions,
   greetingFor,
+  inferTaskCategory,
   storageKeyForUser,
   circadianWindow,
 } from './lib/focusFlowCore.js';
@@ -44,6 +45,7 @@ export default function App() {
   const [editTitle, setEditTitle] = useState('');
   const [editMinutes, setEditMinutes] = useState('');
   const [editDetails, setEditDetails] = useState('');
+  const [editCategory, setEditCategory] = useState('general');
   const [applyDetailsToMatchingTemplates, setApplyDetailsToMatchingTemplates] = useState(false);
   const [setupDraft, setSetupDraft] = useState({});
   const [routineOverridden, setRoutineOverridden] = useState(false);
@@ -383,6 +385,14 @@ export default function App() {
     setQuickAddInputs((current) => ({ ...current, [phaseId]: '' }));
   }
 
+  function addExerciseTaskToPhase(phaseId, title, minutes = 20) {
+    if (!title.trim()) return;
+    updateTasksInPhase(phaseId, (tasks) => [
+      ...tasks,
+      createTask(title.trim(), minutes, 'oneoff', '', 'exercise'),
+    ]);
+  }
+
   function addSuggestionTask(phaseId, suggestion) {
     updateTasksInPhase(phaseId, (tasks) => [
       ...tasks,
@@ -393,6 +403,39 @@ export default function App() {
   function addTemplateTaskToPhase(phaseId, title) {
     if (!title.trim()) return;
     updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null, 'template')]);
+  }
+
+  function moveTaskToPhase(fromPhaseId, taskId, targetPhaseId) {
+    if (fromPhaseId === targetPhaseId) return;
+    setSettings((current) => {
+      let movedTask = null;
+      const removed = current.phases.map((phase) => {
+        if (phase.id !== fromPhaseId) return phase;
+        return {
+          ...phase,
+          tasks: (phase.tasks ?? []).filter((task) => {
+            if (task.id === taskId) {
+              movedTask = task;
+              return false;
+            }
+            return true;
+          }),
+        };
+      });
+
+      if (!movedTask) {
+        return current;
+      }
+
+      return {
+        ...current,
+        phases: removed.map((phase) =>
+          phase.id === targetPhaseId
+            ? { ...phase, tasks: [...(phase.tasks ?? []), movedTask] }
+            : phase
+        ),
+      };
+    });
   }
 
   function updateTaskDetailsInPhase(phaseId, taskId, details) {
@@ -426,6 +469,7 @@ export default function App() {
     setEditTitle(task.title);
     setEditMinutes(task.minutes != null ? String(task.minutes) : '');
     setEditDetails(task.details ?? '');
+    setEditCategory(task.category ?? inferTaskCategory(task.title));
     setApplyDetailsToMatchingTemplates(false);
   }
 
@@ -451,6 +495,7 @@ export default function App() {
                 title,
                 minutes: Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null,
                 details: normalizedDetails,
+                category: editCategory === 'exercise' ? 'exercise' : 'general',
               };
             }
             if (
@@ -466,11 +511,13 @@ export default function App() {
       };
     });
     setEditingTaskId(null);
+    setEditCategory('general');
     setApplyDetailsToMatchingTemplates(false);
   }
 
   function cancelEditTask() {
     setEditingTaskId(null);
+    setEditCategory('general');
     setApplyDetailsToMatchingTemplates(false);
   }
 
@@ -852,6 +899,7 @@ export default function App() {
             editTitle={editTitle}
             editMinutes={editMinutes}
             editDetails={editDetails}
+            editCategory={editCategory}
             applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
             quickAddInputs={quickAddInputs}
@@ -879,6 +927,7 @@ export default function App() {
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
             setEditDetails={setEditDetails}
+            setEditCategory={setEditCategory}
             setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
             togglePhaseCollapsed={togglePhaseCollapsed}
             handleStartPhase={handleStartPhase}
@@ -892,6 +941,8 @@ export default function App() {
             cancelEditTask={cancelEditTask}
             deleteTask={deleteTask}
             addTaskToPhase={addTaskToPhase}
+            addExerciseTaskToPhase={addExerciseTaskToPhase}
+            moveTaskToPhase={moveTaskToPhase}
             addSuggestionTask={addSuggestionTask}
             suggestNextAction={suggestNextAction}
             handleSkipCheckin={handleSkipCheckin}

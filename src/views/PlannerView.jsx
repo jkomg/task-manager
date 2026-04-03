@@ -30,6 +30,7 @@ export function PlannerView({
   editTitle,
   editMinutes,
   editDetails,
+  editCategory,
   applyDetailsToMatchingTemplates,
   collapsedPhases,
   quickAddInputs,
@@ -57,6 +58,7 @@ export function PlannerView({
   setEditTitle,
   setEditMinutes,
   setEditDetails,
+  setEditCategory,
   setApplyDetailsToMatchingTemplates,
   togglePhaseCollapsed,
   handleStartPhase,
@@ -70,6 +72,8 @@ export function PlannerView({
   cancelEditTask,
   deleteTask,
   addTaskToPhase,
+  addExerciseTaskToPhase,
+  moveTaskToPhase,
   addSuggestionTask,
   suggestNextAction,
   handleSkipCheckin,
@@ -144,6 +148,13 @@ export function PlannerView({
         </div>
       )}
 
+      <ExercisePlannerSection
+        phases={settings.phases}
+        activePhaseId={settings.activePhaseId}
+        moveTaskToPhase={moveTaskToPhase}
+        addExerciseTaskToPhase={addExerciseTaskToPhase}
+      />
+
       <div className="day-plan">
         {settings.phases.map((phase, phaseIndex) => (
           <PhaseSection
@@ -159,6 +170,7 @@ export function PlannerView({
             editTitle={editTitle}
             editMinutes={editMinutes}
             editDetails={editDetails}
+            editCategory={editCategory}
             applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
             expandedTaskDetails={expandedTaskDetails}
@@ -172,6 +184,7 @@ export function PlannerView({
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
             setEditDetails={setEditDetails}
+            setEditCategory={setEditCategory}
             setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
             toggleTaskDetails={toggleTaskDetails}
             setSettingsPatch={setSettingsPatch}
@@ -193,6 +206,88 @@ export function PlannerView({
         ))}
       </div>
     </>
+  );
+}
+
+function ExercisePlannerSection({
+  phases,
+  activePhaseId,
+  moveTaskToPhase,
+  addExerciseTaskToPhase,
+}) {
+  const [newExerciseTitle, setNewExerciseTitle] = useState('');
+  const [targetPhaseId, setTargetPhaseId] = useState(activePhaseId ?? phases[0]?.id ?? '');
+
+  const exerciseTasks = phases.flatMap((phase) =>
+    (phase.tasks ?? [])
+      .filter((task) => task.category === 'exercise')
+      .map((task) => ({
+        ...task,
+        phaseId: phase.id,
+        phaseName: phase.name,
+      }))
+  );
+
+  return (
+    <section className="card exercise-section">
+      <div className="section-header">
+        <div>
+          <p className="card-label">Exercise section</p>
+          <h3>Move exercises as your day shifts</h3>
+        </div>
+      </div>
+      <p className="muted-copy">Keep movement tasks flexible and reposition them across phases when energy or timing changes.</p>
+
+      <form
+        className="exercise-add-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!targetPhaseId) return;
+          addExerciseTaskToPhase(targetPhaseId, newExerciseTitle);
+          setNewExerciseTitle('');
+        }}
+      >
+        <input
+          type="text"
+          value={newExerciseTitle}
+          placeholder="Add exercise task..."
+          onChange={(event) => setNewExerciseTitle(event.target.value)}
+        />
+        <select value={targetPhaseId} onChange={(event) => setTargetPhaseId(event.target.value)}>
+          {phases.map((phase) => (
+            <option key={phase.id} value={phase.id}>{phase.name}</option>
+          ))}
+        </select>
+        <button type="submit" className="secondary">Add exercise</button>
+      </form>
+
+      <div className="exercise-list">
+        {exerciseTasks.map((task) => (
+          <div key={task.id} className={`exercise-row ${task.done ? 'done' : ''}`}>
+            <div>
+              <strong>{task.title}</strong>
+              <p className="muted-copy">
+                {task.phaseName}
+                {task.minutes ? ` · ${task.minutes}m` : ''}
+              </p>
+            </div>
+            <select
+              value={task.phaseId}
+              onChange={(event) => moveTaskToPhase(task.phaseId, task.id, event.target.value)}
+            >
+              {phases.map((phase) => (
+                <option key={`${task.id}-${phase.id}`} value={phase.id}>
+                  Move to {phase.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+        {exerciseTasks.length === 0 && (
+          <p className="muted-copy">No exercise tasks yet. Add one above and move it through your phases as needed.</p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -457,6 +552,7 @@ function PhaseSection({
   editTitle,
   editMinutes,
   editDetails,
+  editCategory,
   applyDetailsToMatchingTemplates,
   collapsedPhases,
   expandedTaskDetails,
@@ -470,6 +566,7 @@ function PhaseSection({
   setEditTitle,
   setEditMinutes,
   setEditDetails,
+  setEditCategory,
   setApplyDetailsToMatchingTemplates,
   toggleTaskDetails,
   setSettingsPatch,
@@ -572,6 +669,16 @@ function PhaseSection({
                         value={editMinutes}
                         onChange={(event) => setEditMinutes(event.target.value)}
                       />
+                      <label className="task-edit-category">
+                        Category
+                        <select
+                          value={editCategory}
+                          onChange={(event) => setEditCategory(event.target.value)}
+                        >
+                          <option value="general">General</option>
+                          <option value="exercise">Exercise</option>
+                        </select>
+                      </label>
                       <textarea
                         className="task-details-input"
                         rows={4}
@@ -615,6 +722,7 @@ function PhaseSection({
                             </span>
                           )}
                           {task.minutes && !timer && <span className="task-duration">{task.minutes} min</span>}
+                          {task.category === 'exercise' && <span className="task-category-badge">Exercise</span>}
                           {timer && (
                             <span className="task-timer-running">
                               {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}

@@ -11,7 +11,14 @@ export function formatSeconds(totalSeconds) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function createTask(title, minutes = null, type = 'oneoff', details = '') {
+export function inferTaskCategory(title) {
+  const normalized = String(title ?? '').toLowerCase();
+  return /(exercise|workout|walk|run|movement|stretch|rehab|yoga|bike|swim)/.test(normalized)
+    ? 'exercise'
+    : 'general';
+}
+
+export function createTask(title, minutes = null, type = 'oneoff', details = '', category = null) {
   const uuid = typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -23,6 +30,7 @@ export function createTask(title, minutes = null, type = 'oneoff', details = '')
     type,
     carryCount: 0,
     details: typeof details === 'string' ? details.trim() : '',
+    category: category === 'exercise' ? 'exercise' : inferTaskCategory(title),
   };
 }
 
@@ -411,6 +419,7 @@ export function getActiveProfile(hoursAwake, healthState, cycleInfo) {
 function inferTaskTypes(task) {
   const t = task.title.toLowerCase();
   const types = new Set();
+  if (task.category === 'exercise') types.add('movement');
   if (/writ|draft|creat|essay|chapter|blog|post|story|compost/.test(t)) types.add('creative');
   if (/spanish|french|german|japanese|language|vocab|grammar/.test(t)) types.add('study');
   if (/read|study|research|annotate|craft|input|primer/.test(t)) types.add('study');
