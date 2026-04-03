@@ -15,6 +15,7 @@ import {
   getProactiveTask,
   getSuggestions,
   greetingFor,
+  inferTaskCategory,
   storageKeyForUser,
   circadianWindow,
 } from './lib/focusFlowCore.js';
@@ -43,6 +44,9 @@ export default function App() {
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [editMinutes, setEditMinutes] = useState('');
+  const [editDetails, setEditDetails] = useState('');
+  const [editCategory, setEditCategory] = useState('general');
+  const [applyDetailsToMatchingTemplates, setApplyDetailsToMatchingTemplates] = useState(false);
   const [setupDraft, setSetupDraft] = useState({});
   const [routineOverridden, setRoutineOverridden] = useState(false);
   const [templateAddInputs, setTemplateAddInputs] = useState({});
@@ -381,6 +385,14 @@ export default function App() {
     setQuickAddInputs((current) => ({ ...current, [phaseId]: '' }));
   }
 
+  function addExerciseTaskToPhase(phaseId, title, minutes = 20) {
+    if (!title.trim()) return;
+    updateTasksInPhase(phaseId, (tasks) => [
+      ...tasks,
+      createTask(title.trim(), minutes, 'oneoff', '', 'exercise'),
+    ]);
+  }
+
   function addSuggestionTask(phaseId, suggestion) {
     updateTasksInPhase(phaseId, (tasks) => [
       ...tasks,
@@ -393,28 +405,118 @@ export default function App() {
     updateTasksInPhase(phaseId, (tasks) => [...tasks, createTask(title.trim(), null, 'template')]);
   }
 
+  function moveTaskToPhase(fromPhaseId, taskId, targetPhaseId) {
+    if (fromPhaseId === targetPhaseId) return;
+    setSettings((current) => {
+      let movedTask = null;
+      const removed = current.phases.map((phase) => {
+        if (phase.id !== fromPhaseId) return phase;
+        return {
+          ...phase,
+          tasks: (phase.tasks ?? []).filter((task) => {
+            if (task.id === taskId) {
+              movedTask = task;
+              return false;
+            }
+            return true;
+          }),
+        };
+      });
+
+      if (!movedTask) {
+        return current;
+      }
+
+      return {
+        ...current,
+        phases: removed.map((phase) =>
+          phase.id === targetPhaseId
+            ? { ...phase, tasks: [...(phase.tasks ?? []), movedTask] }
+            : phase
+        ),
+      };
+    });
+  }
+
+  function updateTaskDetailsInPhase(phaseId, taskId, details) {
+    const normalizedDetails = String(details ?? '').trim();
+    updateTasksInPhase(phaseId, (tasks) =>
+      tasks.map((task) => (task.id === taskId ? { ...task, details: normalizedDetails } : task))
+    );
+  }
+
+  function applyTaskDetailsToMatchingTemplates(title, details) {
+    const normalizedTitle = String(title ?? '').trim().toLowerCase();
+    const normalizedDetails = String(details ?? '').trim();
+    if (!normalizedTitle) {
+      return;
+    }
+    setSettings((current) => ({
+      ...current,
+      phases: current.phases.map((phase) => ({
+        ...phase,
+        tasks: (phase.tasks ?? []).map((task) =>
+          task.type === 'template' && String(task.title ?? '').trim().toLowerCase() === normalizedTitle
+            ? { ...task, details: normalizedDetails }
+            : task
+        ),
+      })),
+    }));
+  }
+
   function startEditTask(task) {
     setEditingTaskId(task.id);
     setEditTitle(task.title);
     setEditMinutes(task.minutes != null ? String(task.minutes) : '');
+    setEditDetails(task.details ?? '');
+    setEditCategory(task.category ?? inferTaskCategory(task.title));
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function saveEditTask(phaseId, taskId) {
     const title = editTitle.trim();
     if (!title) return;
     const parsedMinutes = Number(editMinutes);
-    updateTasksInPhase(phaseId, (tasks) =>
-      tasks.map((t) =>
-        t.id === taskId
-          ? { ...t, title, minutes: Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null }
-          : t
-      )
-    );
+    const normalizedDetails = String(editDetails ?? '').trim();
+    setSettings((current) => {
+      // Match propagation by the edited title so rename + apply behaves predictably.
+      const matchingTitle = String(title).trim().toLowerCase();
+
+      return {
+        ...current,
+        phases: current.phases.map((phase) => ({
+          ...phase,
+          tasks: (phase.tasks ?? []).map((task) => {
+            if (task.id === taskId) {
+              return {
+                ...task,
+                title,
+                minutes: Number.isFinite(parsedMinutes) && parsedMinutes > 0 ? parsedMinutes : null,
+                details: normalizedDetails,
+                category: editCategory === 'exercise' ? 'exercise' : 'general',
+              };
+            }
+            if (
+              applyDetailsToMatchingTemplates &&
+              task.type === 'template' &&
+              String(task.title ?? '').trim().toLowerCase() === matchingTitle
+            ) {
+              return { ...task, details: normalizedDetails };
+            }
+            return task;
+          }),
+        })),
+      };
+    });
     setEditingTaskId(null);
+    setEditCategory('general');
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function cancelEditTask() {
     setEditingTaskId(null);
+    setEditCategory('general');
+    setApplyDetailsToMatchingTemplates(false);
   }
 
   function deleteTask(phaseId, taskId) {
@@ -766,6 +868,8 @@ export default function App() {
             deleteTask={deleteTask}
             addTemplateTaskToPhase={addTemplateTaskToPhase}
             insertPhaseAt={insertPhaseAt}
+            updateTaskDetailsInPhase={updateTaskDetailsInPhase}
+            applyTaskDetailsToMatchingTemplates={applyTaskDetailsToMatchingTemplates}
           />
         )}
 
@@ -792,6 +896,9 @@ export default function App() {
             editingTaskId={editingTaskId}
             editTitle={editTitle}
             editMinutes={editMinutes}
+            editDetails={editDetails}
+            editCategory={editCategory}
+            applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
             quickAddInputs={quickAddInputs}
             checkInDone={checkInDone}
@@ -817,6 +924,9 @@ export default function App() {
             setQuickAddInputs={setQuickAddInputs}
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
+            setEditDetails={setEditDetails}
+            setEditCategory={setEditCategory}
+            setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
             togglePhaseCollapsed={togglePhaseCollapsed}
             handleStartPhase={handleStartPhase}
             handlePausePhase={handlePausePhase}
@@ -829,6 +939,8 @@ export default function App() {
             cancelEditTask={cancelEditTask}
             deleteTask={deleteTask}
             addTaskToPhase={addTaskToPhase}
+            addExerciseTaskToPhase={addExerciseTaskToPhase}
+            moveTaskToPhase={moveTaskToPhase}
             addSuggestionTask={addSuggestionTask}
             suggestNextAction={suggestNextAction}
             handleSkipCheckin={handleSkipCheckin}

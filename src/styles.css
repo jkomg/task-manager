@@ -728,6 +728,33 @@ h3 {
   width: 6rem;
 }
 
+.task-edit-form .task-details-input {
+  width: 100%;
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.task-edit-scope {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.task-edit-category {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.task-edit-category select {
+  min-width: 7.5rem;
+}
+
 .danger-text {
   color: var(--danger);
 }
@@ -790,6 +817,34 @@ h3 {
   color: var(--muted);
 }
 
+.task-details {
+  margin-top: 0.3rem;
+}
+
+.task-details-toggle {
+  padding-left: 0;
+}
+
+.task-detail-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.task-category-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(107, 191, 191, 0.14);
+  border: 1px solid rgba(107, 191, 191, 0.35);
+  color: var(--secondary);
+}
+
 .task-timer-running {
   font-size: 0.82rem;
   font-weight: 700;
@@ -820,6 +875,42 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.exercise-section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.exercise-add-form {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) auto auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.exercise-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.exercise-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.exercise-row.done {
+  opacity: 0.55;
+}
+
+.exercise-row select {
+  min-width: 9rem;
 }
 
 /* Phase sections */
@@ -1543,13 +1634,18 @@ h3 {
 }
 
 .settings-template-task-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.45rem;
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
+}
+
+.settings-template-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .settings-template-task-title {
@@ -1557,6 +1653,22 @@ h3 {
   font-size: 0.85rem;
   color: var(--ink);
   min-width: 0;
+}
+
+.settings-template-details-input {
+  width: 100%;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.settings-template-details-input:focus {
+  outline: none;
+  border-color: rgba(90, 170, 200, 0.4);
 }
 
 .settings-template-add input {
@@ -1790,6 +1902,19 @@ h3 {
 
   .phase-section-header {
     padding: 0.7rem 0.75rem;
+  }
+
+  .exercise-add-form {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .exercise-row select {
+    width: 100%;
   }
 }
 

@@ -2,6 +2,13 @@ import crypto from 'node:crypto';
 
 export const HEALTH_OPTIONS = ['steady', 'scattered', 'drained'];
 
+function inferTaskCategory(title) {
+  const normalized = String(title ?? '').toLowerCase();
+  return /(exercise|workout|walk|run|movement|stretch|rehab|yoga|bike|swim)/.test(normalized)
+    ? 'exercise'
+    : 'general';
+}
+
 export function buildDefaultState() {
   return {
     phases: [
@@ -106,6 +113,11 @@ export function normalizeState(input) {
                     Number.isFinite(Number(task.carryCount)) && Number(task.carryCount) >= 0
                       ? Number(task.carryCount)
                       : 0,
+                  details: typeof task.details === 'string' ? task.details.trim() : '',
+                  category:
+                    task.category === 'exercise'
+                      ? 'exercise'
+                      : inferTaskCategory(task.title),
                 }))
             : [],
         }))

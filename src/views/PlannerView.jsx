@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   formatClockFromIso,
   formatDateLong,
@@ -28,6 +29,9 @@ export function PlannerView({
   editingTaskId,
   editTitle,
   editMinutes,
+  editDetails,
+  editCategory,
+  applyDetailsToMatchingTemplates,
   collapsedPhases,
   quickAddInputs,
   checkInDone,
@@ -53,6 +57,9 @@ export function PlannerView({
   setQuickAddInputs,
   setEditTitle,
   setEditMinutes,
+  setEditDetails,
+  setEditCategory,
+  setApplyDetailsToMatchingTemplates,
   togglePhaseCollapsed,
   handleStartPhase,
   handlePausePhase,
@@ -65,6 +72,8 @@ export function PlannerView({
   cancelEditTask,
   deleteTask,
   addTaskToPhase,
+  addExerciseTaskToPhase,
+  moveTaskToPhase,
   addSuggestionTask,
   suggestNextAction,
   handleSkipCheckin,
@@ -73,6 +82,20 @@ export function PlannerView({
   isFeatureEnabled,
   setRoutineOverridden,
 }) {
+  const [expandedTaskDetails, setExpandedTaskDetails] = useState(() => new Set());
+
+  function toggleTaskDetails(taskId) {
+    setExpandedTaskDetails((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
   return (
     <>
       {isFeatureEnabled('mind_context') && (
@@ -125,6 +148,13 @@ export function PlannerView({
         </div>
       )}
 
+      <ExercisePlannerSection
+        phases={settings.phases}
+        activePhaseId={settings.activePhaseId}
+        moveTaskToPhase={moveTaskToPhase}
+        addExerciseTaskToPhase={addExerciseTaskToPhase}
+      />
+
       <div className="day-plan">
         {settings.phases.map((phase, phaseIndex) => (
           <PhaseSection
@@ -139,7 +169,11 @@ export function PlannerView({
             editingTaskId={editingTaskId}
             editTitle={editTitle}
             editMinutes={editMinutes}
+            editDetails={editDetails}
+            editCategory={editCategory}
+            applyDetailsToMatchingTemplates={applyDetailsToMatchingTemplates}
             collapsedPhases={collapsedPhases}
+            expandedTaskDetails={expandedTaskDetails}
             quickAddInputs={quickAddInputs}
             phaseRemaining={phaseRemaining}
             phaseRunning={phaseRunning}
@@ -149,6 +183,10 @@ export function PlannerView({
             setQuickAddInputs={setQuickAddInputs}
             setEditTitle={setEditTitle}
             setEditMinutes={setEditMinutes}
+            setEditDetails={setEditDetails}
+            setEditCategory={setEditCategory}
+            setApplyDetailsToMatchingTemplates={setApplyDetailsToMatchingTemplates}
+            toggleTaskDetails={toggleTaskDetails}
             setSettingsPatch={setSettingsPatch}
             togglePhaseCollapsed={togglePhaseCollapsed}
             handleStartPhase={handleStartPhase}
@@ -168,6 +206,88 @@ export function PlannerView({
         ))}
       </div>
     </>
+  );
+}
+
+function ExercisePlannerSection({
+  phases,
+  activePhaseId,
+  moveTaskToPhase,
+  addExerciseTaskToPhase,
+}) {
+  const [newExerciseTitle, setNewExerciseTitle] = useState('');
+  const [targetPhaseId, setTargetPhaseId] = useState(activePhaseId ?? phases[0]?.id ?? '');
+
+  const exerciseTasks = phases.flatMap((phase) =>
+    (phase.tasks ?? [])
+      .filter((task) => task.category === 'exercise')
+      .map((task) => ({
+        ...task,
+        phaseId: phase.id,
+        phaseName: phase.name,
+      }))
+  );
+
+  return (
+    <section className="card exercise-section">
+      <div className="section-header">
+        <div>
+          <p className="card-label">Exercise section</p>
+          <h3>Move exercises as your day shifts</h3>
+        </div>
+      </div>
+      <p className="muted-copy">Keep movement tasks flexible and reposition them across phases when energy or timing changes.</p>
+
+      <form
+        className="exercise-add-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!targetPhaseId) return;
+          addExerciseTaskToPhase(targetPhaseId, newExerciseTitle);
+          setNewExerciseTitle('');
+        }}
+      >
+        <input
+          type="text"
+          value={newExerciseTitle}
+          placeholder="Add exercise task..."
+          onChange={(event) => setNewExerciseTitle(event.target.value)}
+        />
+        <select value={targetPhaseId} onChange={(event) => setTargetPhaseId(event.target.value)}>
+          {phases.map((phase) => (
+            <option key={phase.id} value={phase.id}>{phase.name}</option>
+          ))}
+        </select>
+        <button type="submit" className="secondary">Add exercise</button>
+      </form>
+
+      <div className="exercise-list">
+        {exerciseTasks.map((task) => (
+          <div key={task.id} className={`exercise-row ${task.done ? 'done' : ''}`}>
+            <div>
+              <strong>{task.title}</strong>
+              <p className="muted-copy">
+                {task.phaseName}
+                {task.minutes ? ` · ${task.minutes}m` : ''}
+              </p>
+            </div>
+            <select
+              value={task.phaseId}
+              onChange={(event) => moveTaskToPhase(task.phaseId, task.id, event.target.value)}
+            >
+              {phases.map((phase) => (
+                <option key={`${task.id}-${phase.id}`} value={phase.id}>
+                  Move to {phase.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+        {exerciseTasks.length === 0 && (
+          <p className="muted-copy">No exercise tasks yet. Add one above and move it through your phases as needed.</p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -431,7 +551,11 @@ function PhaseSection({
   editingTaskId,
   editTitle,
   editMinutes,
+  editDetails,
+  editCategory,
+  applyDetailsToMatchingTemplates,
   collapsedPhases,
+  expandedTaskDetails,
   quickAddInputs,
   phaseRemaining,
   phaseRunning,
@@ -441,6 +565,10 @@ function PhaseSection({
   setQuickAddInputs,
   setEditTitle,
   setEditMinutes,
+  setEditDetails,
+  setEditCategory,
+  setApplyDetailsToMatchingTemplates,
+  toggleTaskDetails,
   setSettingsPatch,
   togglePhaseCollapsed,
   handleStartPhase,
@@ -520,6 +648,11 @@ function PhaseSection({
               const timerRunning = timer?.running ?? false;
               const timerSeconds = timer?.seconds ?? 0;
               const isEditing = editingTaskId === task.id;
+              const detailsExpanded = expandedTaskDetails.has(task.id);
+              const detailLines = String(task.details ?? '')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean);
               const taskFit = getTaskFit(task, activeProfile);
 
               return (
@@ -536,6 +669,31 @@ function PhaseSection({
                         value={editMinutes}
                         onChange={(event) => setEditMinutes(event.target.value)}
                       />
+                      <label className="task-edit-category">
+                        Category
+                        <select
+                          value={editCategory}
+                          onChange={(event) => setEditCategory(event.target.value)}
+                        >
+                          <option value="general">General</option>
+                          <option value="exercise">Exercise</option>
+                        </select>
+                      </label>
+                      <textarea
+                        className="task-details-input"
+                        rows={4}
+                        placeholder="Task details/actions (one per line)"
+                        value={editDetails}
+                        onChange={(event) => setEditDetails(event.target.value)}
+                      />
+                      <label className="task-edit-scope">
+                        <input
+                          type="checkbox"
+                          checked={applyDetailsToMatchingTemplates}
+                          onChange={(event) => setApplyDetailsToMatchingTemplates(event.target.checked)}
+                        />
+                        Apply details to matching repeating tasks by name
+                      </label>
                       <button type="submit">Save</button>
                       <button type="button" className="ghost" onClick={cancelEditTask}>
                         Cancel
@@ -564,11 +722,32 @@ function PhaseSection({
                             </span>
                           )}
                           {task.minutes && !timer && <span className="task-duration">{task.minutes} min</span>}
+                          {task.category === 'exercise' && <span className="task-category-badge">Exercise</span>}
                           {timer && (
                             <span className="task-timer-running">
                               {timerRunning ? formatSeconds(timerSeconds) : `${formatSeconds(timerSeconds)} left`}
                               {' · '}{task.minutes}m total
                             </span>
+                          )}
+                        </div>
+                        <div className="task-details">
+                          <button
+                            className="ghost small task-details-toggle"
+                            onClick={() => toggleTaskDetails(task.id)}
+                            type="button"
+                          >
+                            {detailsExpanded ? 'Hide actions' : `Show actions${detailLines.length > 0 ? ` (${detailLines.length})` : ''}`}
+                          </button>
+                          {detailsExpanded && (
+                            detailLines.length > 0 ? (
+                              <ul className="task-detail-list">
+                                {detailLines.map((line, index) => (
+                                  <li key={`${task.id}-detail-${index}`}>{line}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="muted-copy">No actions added yet. Use Edit to add task details.</p>
+                            )
                           )}
                         </div>
                       </div>
