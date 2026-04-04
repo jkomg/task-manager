@@ -694,8 +694,9 @@ h3 {
 
 .suggestion-strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 0.2rem;
 }
 
@@ -1391,9 +1392,10 @@ h3 {
 
 /* Phase map */
 .phase-map-card {
-  display: flex;
-  overflow-x: auto;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.35rem;
+  overflow: visible;
   padding: 0.32rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
@@ -1402,8 +1404,8 @@ h3 {
 }
 
 .phase-map-segment {
-  flex: 1;
-  min-width: 6rem;
+  min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
@@ -2015,6 +2017,11 @@ h3 {
     padding: 0 1rem 0.5rem;
   }
 
+  .suggestion-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
   .suggest-btn {
     margin: 0.1rem 1rem 0.75rem;
   }
@@ -2063,11 +2070,16 @@ h3 {
   }
 
   .phase-map-card {
+    display: flex;
+    overflow-x: auto;
+    gap: 0;
     padding: 0.4rem;
   }
 
   .phase-map-segment {
+    flex: 1;
     min-width: 6.2rem;
+    width: auto;
     padding: 0.55rem 0.65rem;
   }
 
@@ -2123,7 +2135,6 @@ h3 {
 
 @media (max-width: 480px) {
   .phase-map-segment {
-    min-width: 5rem;
     padding: 0.4rem 0.45rem;
   }
 
