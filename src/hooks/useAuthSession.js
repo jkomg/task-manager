@@ -127,6 +127,15 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
     }
   }
 
+  async function refreshAuthenticatedSession() {
+    const authMeta = await api('/api/auth/config')
+      .then((data) => data?.auth ?? DEFAULT_AUTH_CONFIG)
+      .catch(() => DEFAULT_AUTH_CONFIG);
+    const data = await api('/api/auth/session');
+    applyAuthenticatedPayload(data, authMeta);
+    return data;
+  }
+
   async function handleLogout() {
     try {
       await api('/api/auth/logout', { method: 'POST' });
@@ -171,6 +180,7 @@ export function useAuthSession({ onAuthenticated, onSignedOut } = {}) {
     loadedSettingsRef,
     handleAuthSubmit,
     claimAdminAccess,
+    refreshAuthenticatedSession,
     handleLogout,
     updateAuthForm,
   };

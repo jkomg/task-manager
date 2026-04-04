@@ -80,6 +80,7 @@ export default function App() {
     loadedSettingsRef,
     handleAuthSubmit,
     claimAdminAccess,
+    refreshAuthenticatedSession,
     handleLogout,
     updateAuthForm,
   } = useAuthSession({
@@ -105,10 +106,12 @@ export default function App() {
     revokeUserSessions,
     seedDemoState,
     clearUserActivity,
+    unlockUserAuth,
   } = useAdminData({
     user,
     siteView,
     onFeatureFlagsChange: setFeatureFlags,
+    refreshAuthenticatedSession,
   });
 
   const activePhase = useMemo(
@@ -852,6 +855,7 @@ export default function App() {
             revokeUserSessions={revokeUserSessions}
             seedDemoState={seedDemoState}
             clearUserActivity={clearUserActivity}
+            unlockUserAuth={unlockUserAuth}
           />
         )}
 

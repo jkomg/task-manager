@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { DEFAULT_FEATURE_FLAGS } from '../lib/focusFlowData.js';
 
-export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
+export function useAdminData({ user, siteView, onFeatureFlagsChange, refreshAuthenticatedSession }) {
   const [adminSummary, setAdminSummary] = useState({
     flags: DEFAULT_FEATURE_FLAGS,
     metrics: null,
@@ -69,13 +69,17 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     }
   }
 
-  async function resetUserState(targetUserId) {
+  async function resetUserState(targetUserId, options = {}) {
     setAdminStatus('');
     try {
       await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/reset`, {
         method: 'POST',
+        body: JSON.stringify(options),
       });
-      setAdminStatus('User state reset.');
+      if (options.preserveCurrentSession && targetUserId === user?.id) {
+        await refreshAuthenticatedSession?.();
+      }
+      setAdminStatus(options.preserveCurrentSession ? 'Your state was reset and your current session was preserved.' : 'User state reset.');
       await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
       if (selectedAdminUser?.user?.id === targetUserId) {
         await inspectUser(targetUserId);
@@ -183,6 +187,25 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     }
   }
 
+  async function unlockUserAuth(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/unlock`, {
+        method: 'POST',
+      });
+      setAdminStatus(data.changed ? 'Auth lock state cleared.' : 'No lock state to clear.');
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+    } catch (error) {
+      setAdminStatus(error.message);
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (siteView === 'admin' && user?.role === 'admin') {
       refreshAdminSummary();
@@ -208,5 +231,6 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
     revokeUserSessions,
     seedDemoState,
     clearUserActivity,
+    unlockUserAuth,
   };
 }
