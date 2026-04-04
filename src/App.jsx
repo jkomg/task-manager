@@ -105,6 +105,7 @@ export default function App() {
     revokeUserSessions,
     seedDemoState,
     clearUserActivity,
+    unlockUserAuth,
   } = useAdminData({
     user,
     siteView,
@@ -852,6 +853,7 @@ export default function App() {
             revokeUserSessions={revokeUserSessions}
             seedDemoState={seedDemoState}
             clearUserActivity={clearUserActivity}
+            unlockUserAuth={unlockUserAuth}
           />
         )}
 

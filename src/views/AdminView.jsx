@@ -17,6 +17,7 @@ export function AdminView({
   revokeUserSessions,
   seedDemoState,
   clearUserActivity,
+  unlockUserAuth,
 }) {
   function confirmAndRun(message, action) {
     if (!window.confirm(message)) {
@@ -79,6 +80,10 @@ export function AdminView({
             <strong>{adminSummary.metrics?.suspendedUsers ?? 0}</strong>
           </div>
           <div className="admin-metric">
+            <span>Locked logins</span>
+            <strong>{adminSummary.metrics?.lockedUsers ?? 0}</strong>
+          </div>
+          <div className="admin-metric">
             <span>Flags</span>
             <strong>{(adminSummary.flags ?? featureFlags).length}</strong>
           </div>
@@ -122,6 +127,15 @@ export function AdminView({
                 <p className="muted-copy">
                   Active sessions {adminUser.activeSessionCount ?? 0}
                 </p>
+                {adminUser.loginLockedUntil && (
+                  <p className="muted-copy">Login locked until {new Date(adminUser.loginLockedUntil).toLocaleString()}</p>
+                )}
+                {!adminUser.loginLockedUntil && (adminUser.failedLoginAttempts ?? 0) > 0 && (
+                  <p className="muted-copy">
+                    Failed login attempts {adminUser.failedLoginAttempts}
+                    {adminUser.lastFailedLoginAt ? ` · last ${new Date(adminUser.lastFailedLoginAt).toLocaleString()}` : ''}
+                  </p>
+                )}
                 {adminUser.lastLoginAt && (
                   <p className="muted-copy">Last login {new Date(adminUser.lastLoginAt).toLocaleString()}</p>
                 )}
@@ -157,15 +171,27 @@ export function AdminView({
                 </button>
                 <button
                   className="ghost small"
-                  disabled={adminUser.id === user.id}
                   onClick={() =>
                     confirmAndRun(
-                      `Reset all planner state for ${adminUser.email}?`,
-                      () => resetUserState(adminUser.id)
+                      adminUser.id === user.id
+                        ? 'Reset your own planner state and keep this current session?'
+                        : `Reset all planner state for ${adminUser.email}?`,
+                      () => resetUserState(adminUser.id, adminUser.id === user.id ? { preserveCurrentSession: true } : undefined)
                     )
                   }
                 >
-                  {adminUser.id === user.id ? 'Current user' : 'Reset state'}
+                  {adminUser.id === user.id ? 'Reset my state' : 'Reset state'}
+                </button>
+                <button
+                  className="ghost small"
+                  onClick={() =>
+                    confirmAndRun(
+                      `Clear login lock state for ${adminUser.email}?`,
+                      () => unlockUserAuth(adminUser.id)
+                    )
+                  }
+                >
+                  Unlock login
                 </button>
                 <button
                   className="ghost small"
@@ -223,7 +249,14 @@ export function AdminView({
               <span>Completed tasks</span>
               <strong>{selectedAdminUser.plannerStateSummary?.completedTasks ?? 0}</strong>
             </div>
+            <div className="admin-metric">
+              <span>Failed logins</span>
+              <strong>{selectedAdminUser.user.failedLoginAttempts ?? 0}</strong>
+            </div>
           </div>
+          {selectedAdminUser.user.loginLockedUntil && (
+            <p className="muted-copy">Login locked until {new Date(selectedAdminUser.user.loginLockedUntil).toLocaleString()}</p>
+          )}
           <p className="muted-copy">
             Routine {selectedAdminUser.plannerStateSummary?.routineType ?? 'session'} · Health {selectedAdminUser.plannerStateSummary?.healthState ?? 'steady'} · Setup {selectedAdminUser.plannerStateSummary?.setupComplete ? 'complete' : 'pending'} · Onboarding {selectedAdminUser.plannerStateSummary?.onboardingComplete ? 'complete' : 'pending'}
           </p>

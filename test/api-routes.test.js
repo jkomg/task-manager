@@ -193,6 +193,66 @@ test('admin reset revokes another user session and resets their state', async ()
   }
 });
 
+test('admin can reset their own state while preserving current session', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-admin-self-reset',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+    const adminId = adminRegistration.body.user.id;
+
+    server.db
+      .prepare("UPDATE users SET settings_json = ? WHERE id = ?")
+      .run(JSON.stringify({
+        phases: [],
+        activePhaseId: null,
+        routineType: 'integration',
+        healthState: 'drained',
+        preferences: {
+          setupComplete: true,
+          onboardingComplete: true,
+        },
+      }), adminId);
+
+    const reset = await server.request(`/api/admin/users/${adminId}/reset`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({ preserveCurrentSession: true }),
+    });
+
+    assert.equal(reset.response.status, 200);
+    assert.equal(reset.body.ok, true);
+    assert.equal(reset.body.preservedCurrentSession, true);
+
+    const session = await server.request('/api/auth/session', {
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(session.response.status, 200);
+
+    const resetUser = server.db
+      .prepare('SELECT settings_json FROM users WHERE id = ?')
+      .get(adminId);
+    const parsedState = JSON.parse(resetUser.settings_json);
+    assert.equal(parsedState.routineType, 'session');
+    assert.equal(parsedState.preferences.setupComplete, false);
+  } finally {
+    await server.close();
+  }
+});
+
 test('admin can suspend and reactivate accounts', async () => {
   const server = await startTestServer({
     name: 'focusflow-admin-account-status',
@@ -260,6 +320,95 @@ test('admin can suspend and reactivate accounts', async () => {
       }),
     });
     assert.equal(loginAgain.response.status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test('locks login after repeated failures and lets admin unlock the account', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-login-lock',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+
+    const userRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Jordan',
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const userId = userRegistration.body.user.id;
+
+    for (let index = 0; index < 4; index += 1) {
+      const failed = await server.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'jordan@example.com',
+          password: 'wrong-password',
+        }),
+      });
+      assert.equal(failed.response.status, 401);
+    }
+
+    const lockFailure = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'jordan@example.com',
+        password: 'wrong-password',
+      }),
+    });
+    assert.equal(lockFailure.response.status, 429);
+    assert.equal(lockFailure.body.error, 'Too many login attempts. Try again shortly.');
+
+    const lockedCorrectPassword = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    assert.equal(lockedCorrectPassword.response.status, 429);
+
+    const summaryWhileLocked = await server.request('/api/admin/summary', {
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(summaryWhileLocked.response.status, 200);
+    assert.equal(summaryWhileLocked.body.metrics.lockedUsers, 1);
+
+    const unlock = await server.request(`/api/admin/users/${userId}/unlock`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(unlock.response.status, 200);
+    assert.equal(unlock.body.ok, true);
+    assert.equal(unlock.body.changed, true);
+
+    const loginAfterUnlock = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    assert.equal(loginAfterUnlock.response.status, 200);
   } finally {
     await server.close();
   }

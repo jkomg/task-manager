@@ -90,7 +90,22 @@ test('migrates a direct legacy database with sessions missing expires_at', () =>
 
   assert.deepEqual(
     userColumns,
-    ['id', 'email', 'password_hash', 'display_name', 'role', 'auth_provider', 'auth_subject', 'account_status', 'settings_json', 'created_at', 'last_login_at']
+    [
+      'id',
+      'email',
+      'password_hash',
+      'display_name',
+      'role',
+      'auth_provider',
+      'auth_subject',
+      'account_status',
+      'failed_login_attempts',
+      'last_failed_login_at',
+      'locked_until',
+      'settings_json',
+      'created_at',
+      'last_login_at',
+    ]
   );
   assert.deepEqual(sessionColumns, ['token', 'user_id', 'created_at', 'expires_at']);
   assert.equal(tableSql.includes('users_legacy'), false);

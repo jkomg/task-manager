@@ -25,6 +25,9 @@ const USERS_TABLE_BODY = `
     auth_provider TEXT NOT NULL DEFAULT 'local',
     auth_subject TEXT NOT NULL,
     account_status TEXT NOT NULL DEFAULT 'active',
+    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+    last_failed_login_at TEXT,
+    locked_until TEXT,
     settings_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
     last_login_at TEXT
@@ -91,6 +94,9 @@ function rebuildUsersTableIfNeeded(db) {
     !columnNames.has('auth_provider') ||
     !columnNames.has('auth_subject') ||
     !columnNames.has('account_status') ||
+    !columnNames.has('failed_login_attempts') ||
+    !columnNames.has('last_failed_login_at') ||
+    !columnNames.has('locked_until') ||
     !columnNames.has('last_login_at') ||
     passwordHashColumn?.notnull === 1;
 
@@ -106,6 +112,11 @@ function rebuildUsersTableIfNeeded(db) {
   const accountStatusExpression = columnNames.has('account_status')
     ? "COALESCE(account_status, 'active')"
     : "'active'";
+  const failedAttemptsExpression = columnNames.has('failed_login_attempts')
+    ? 'COALESCE(failed_login_attempts, 0)'
+    : '0';
+  const lastFailedLoginExpression = columnNames.has('last_failed_login_at') ? 'last_failed_login_at' : 'NULL';
+  const lockedUntilExpression = columnNames.has('locked_until') ? 'locked_until' : 'NULL';
   const lastLoginExpression = columnNames.has('last_login_at') ? 'last_login_at' : 'NULL';
   const passwordHashExpression = columnNames.has('password_hash') ? 'password_hash' : 'NULL';
 
@@ -123,6 +134,9 @@ function rebuildUsersTableIfNeeded(db) {
         auth_provider,
         auth_subject,
         account_status,
+        failed_login_attempts,
+        last_failed_login_at,
+        locked_until,
         settings_json,
         created_at,
         last_login_at
@@ -136,6 +150,9 @@ function rebuildUsersTableIfNeeded(db) {
         ${authProviderExpression},
         ${authSubjectExpression},
         ${accountStatusExpression},
+        ${failedAttemptsExpression},
+        ${lastFailedLoginExpression},
+        ${lockedUntilExpression},
         settings_json,
         created_at,
         ${lastLoginExpression}
@@ -251,6 +268,7 @@ function ensureIndexes(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
     CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status);
+    CREATE INDEX IF NOT EXISTS idx_users_locked_until ON users(locked_until);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_identity ON users(auth_provider, auth_subject);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);

@@ -13,6 +13,8 @@ import { buildDefaultState, normalizeState } from './defaultState.js';
 import { SESSION_TTL_MS } from './db.js';
 
 const SESSION_COOKIE = 'focus_flow_session';
+const LOGIN_FAILURE_LIMIT = Math.max(1, Number(process.env.LOGIN_FAILURE_LIMIT ?? 5) || 5);
+const LOGIN_LOCK_MS = Math.max(60_000, Number(process.env.LOGIN_LOCK_MS ?? 15 * 60 * 1000) || (15 * 60 * 1000));
 const WEATHER_CODE_LABELS = {
   0: 'clear',
   1: 'mostly clear',
@@ -43,6 +45,31 @@ const WEATHER_CODE_LABELS = {
   96: 'thunderstorms with hail',
   99: 'thunderstorms with hail',
 };
+
+function parseIsoDate(value) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null;
+}
+
+function getLoginLockState(user, now = new Date()) {
+  const lockedUntilDate = parseIsoDate(user?.locked_until);
+  if (!lockedUntilDate || lockedUntilDate <= now) {
+    return {
+      locked: false,
+      lockedUntil: null,
+      retryAfterSeconds: 0,
+    };
+  }
+  const retryAfterSeconds = Math.max(1, Math.ceil((lockedUntilDate.getTime() - now.getTime()) / 1000));
+  return {
+    locked: true,
+    lockedUntil: lockedUntilDate.toISOString(),
+    retryAfterSeconds,
+  };
+}
 
 function parseCookies(cookieHeader = '') {
   return Object.fromEntries(
@@ -141,6 +168,7 @@ export function createApp({
   }
 
   function publicUser(row) {
+    const lockState = getLoginLockState(row);
     return {
       id: row.id,
       email: row.email,
@@ -148,6 +176,9 @@ export function createApp({
       role: row.role,
       authProvider: row.auth_provider ?? 'local',
       accountStatus: row.account_status ?? 'active',
+      failedLoginAttempts: Number(row.failed_login_attempts ?? 0),
+      lastFailedLoginAt: row.last_failed_login_at ?? null,
+      loginLockedUntil: lockState.locked ? lockState.lockedUntil : null,
     };
   }
 
@@ -352,6 +383,36 @@ export function createApp({
       .run(nextSessionExpiry(), token);
   }
 
+  function recordLoginFailure(userId, now = new Date()) {
+    const row = db
+      .prepare('SELECT failed_login_attempts, locked_until FROM users WHERE id = ?')
+      .get(userId);
+    const currentAttempts = Number(row?.failed_login_attempts ?? 0);
+    const nextAttempts = currentAttempts + 1;
+    const lock = nextAttempts >= LOGIN_FAILURE_LIMIT;
+    const lockUntilIso = lock ? new Date(now.getTime() + LOGIN_LOCK_MS).toISOString() : null;
+
+    db.prepare(
+      `UPDATE users
+       SET failed_login_attempts = ?, last_failed_login_at = ?, locked_until = ?
+       WHERE id = ?`
+    ).run(lock ? 0 : nextAttempts, now.toISOString(), lockUntilIso, userId);
+
+    return {
+      lockApplied: lock,
+      lockUntil: lockUntilIso,
+      attemptsRemaining: lock ? 0 : Math.max(0, LOGIN_FAILURE_LIMIT - nextAttempts),
+    };
+  }
+
+  function clearLoginFailures(userId) {
+    db.prepare(
+      `UPDATE users
+       SET failed_login_attempts = 0, last_failed_login_at = NULL, locked_until = NULL
+       WHERE id = ?`
+    ).run(userId);
+  }
+
   function requireAuth(req, res, next) {
     const cookies = parseCookies(req.headers.cookie);
     const token = cookies[SESSION_COOKIE];
@@ -365,7 +426,7 @@ export function createApp({
     const row = db
       .prepare(
         `SELECT users.id, users.email, users.display_name, users.role, users.auth_provider, users.auth_subject,
-                users.account_status, users.settings_json
+                users.account_status, users.failed_login_attempts, users.last_failed_login_at, users.locked_until, users.settings_json
          FROM sessions
          JOIN users ON users.id = sessions.user_id
          WHERE sessions.token = ?
@@ -459,7 +520,7 @@ export function createApp({
 
     const user = db
       .prepare(
-        'SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, settings_json FROM users WHERE id = ?'
+        'SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, failed_login_attempts, last_failed_login_at, locked_until, settings_json FROM users WHERE id = ?'
       )
       .get(req.user.id);
     return res.json(authResponseForUser(user));
@@ -500,7 +561,9 @@ export function createApp({
     setSessionCookie(res, token);
 
     const user = db
-      .prepare('SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, settings_json FROM users WHERE id = ?')
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, auth_subject, account_status, failed_login_attempts, last_failed_login_at, locked_until, settings_json FROM users WHERE id = ?'
+      )
       .get(id);
 
     writeAuditEvent({
@@ -521,19 +584,45 @@ export function createApp({
 
     const user = db
       .prepare(
-        `SELECT id, email, display_name, role, password_hash, auth_provider, auth_subject, account_status, settings_json
+        `SELECT id, email, display_name, role, password_hash, auth_provider, auth_subject, account_status,
+                failed_login_attempts, last_failed_login_at, locked_until, settings_json
          FROM users
          WHERE email = ?`
       )
       .get(email);
 
-    if (!user || user.account_status !== 'active' || !canUsePasswordAuth(user) || !verifyPassword(password, user.password_hash)) {
+    const lockState = getLoginLockState(user);
+    if (lockState.locked) {
       writeAuditEvent({
-        eventType: 'auth.login_failed',
+        eventType: 'auth.login_blocked',
         level: 'warn',
+        actorUserId: user.id,
+        requestId: req.requestId,
+        message: `Blocked login for locked account: ${email || 'unknown email'}`,
+        metadata: { lockedUntil: lockState.lockedUntil, retryAfterSeconds: lockState.retryAfterSeconds },
+      });
+      res.setHeader('Retry-After', String(lockState.retryAfterSeconds));
+      return res.status(429).json({ error: 'Too many login attempts. Try again shortly.' });
+    }
+
+    const passwordValid = user && user.account_status === 'active' && canUsePasswordAuth(user) && verifyPassword(password, user.password_hash);
+    if (!passwordValid) {
+      let lockApplied = false;
+      if (user && user.account_status === 'active' && canUsePasswordAuth(user)) {
+        const failureState = recordLoginFailure(user.id);
+        lockApplied = failureState.lockApplied;
+      }
+      writeAuditEvent({
+        eventType: lockApplied ? 'auth.login_locked' : 'auth.login_failed',
+        level: 'warn',
+        actorUserId: user?.id ?? null,
         requestId: req.requestId,
         message: `Failed login attempt for ${email || 'unknown email'}`,
       });
+      if (lockApplied) {
+        res.setHeader('Retry-After', String(Math.ceil(LOGIN_LOCK_MS / 1000)));
+        return res.status(429).json({ error: 'Too many login attempts. Try again shortly.' });
+      }
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
@@ -542,6 +631,7 @@ export function createApp({
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(resolvedRole, user.id);
       user.role = resolvedRole;
     }
+    clearLoginFailures(user.id);
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id);
     const token = createSession(user.id);
     setSessionCookie(res, token);
@@ -623,9 +713,10 @@ export function createApp({
         SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) AS adminUsers,
         SUM(CASE WHEN auth_provider = 'local' THEN 1 ELSE 0 END) AS localUsers,
         SUM(CASE WHEN account_status = 'active' THEN 1 ELSE 0 END) AS activeUsers,
-        SUM(CASE WHEN account_status = 'suspended' THEN 1 ELSE 0 END) AS suspendedUsers
+        SUM(CASE WHEN account_status = 'suspended' THEN 1 ELSE 0 END) AS suspendedUsers,
+        SUM(CASE WHEN locked_until IS NOT NULL AND locked_until > ? THEN 1 ELSE 0 END) AS lockedUsers
       FROM users
-    `).get();
+    `).get(new Date().toISOString());
     const recentEvents = db.prepare(`
       SELECT id, event_type, level, actor_user_id, target_user_id, request_id, message, metadata_json, created_at
       FROM audit_events
@@ -651,6 +742,7 @@ export function createApp({
         localUsers: Number(counts.localUsers ?? 0),
         activeUsers: Number(counts.activeUsers ?? 0),
         suspendedUsers: Number(counts.suspendedUsers ?? 0),
+        lockedUsers: Number(counts.lockedUsers ?? 0),
       },
       recentEvents,
       auth: getAuthConfig(),
@@ -662,6 +754,7 @@ export function createApp({
     const nowIso = new Date().toISOString();
     const sql = `
       SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at,
+             failed_login_attempts, last_failed_login_at, locked_until,
              (
                SELECT COUNT(*)
                FROM sessions
@@ -684,6 +777,9 @@ export function createApp({
       activeSessionCount: Number(row.active_session_count ?? 0),
       createdAt: row.created_at,
       lastLoginAt: row.last_login_at,
+      failedLoginAttempts: Number(row.failed_login_attempts ?? 0),
+      lastFailedLoginAt: row.last_failed_login_at,
+      loginLockedUntil: getLoginLockState(row).locked ? row.locked_until : null,
     }));
 
     res.json({ users });
@@ -694,7 +790,8 @@ export function createApp({
     const nowIso = new Date().toISOString();
     const target = db
       .prepare(
-        `SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at, settings_json
+        `SELECT id, email, display_name, role, auth_provider, account_status, created_at, last_login_at,
+                failed_login_attempts, last_failed_login_at, locked_until, settings_json
          FROM users
          WHERE id = ?`
       )
@@ -758,17 +855,28 @@ export function createApp({
 
   app.post('/api/admin/users/:userId/reset', requireAuth, requireAdmin, (req, res) => {
     const targetUserId = String(req.params.userId ?? '').trim();
-    if (targetUserId === req.user.id) {
-      return res.status(400).json({ error: 'Reset your own account manually instead of using the admin reset.' });
+    const preserveCurrentSession = Boolean(req.body?.preserveCurrentSession);
+    if (targetUserId === req.user.id && !preserveCurrentSession) {
+      return res.status(400).json({ error: 'Use preserveCurrentSession to reset your own account without ending your session.' });
     }
-    const target = db.prepare('SELECT id, email, display_name, role, auth_provider, account_status FROM users WHERE id = ?').get(targetUserId);
+    const target = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until FROM users WHERE id = ?'
+      )
+      .get(targetUserId);
     if (!target) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
     db.prepare('UPDATE users SET settings_json = ? WHERE id = ?')
       .run(JSON.stringify(buildDefaultState()), targetUserId);
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+    let preservedCurrentSession = false;
+    if (targetUserId === req.user.id && preserveCurrentSession) {
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(targetUserId, req.sessionToken);
+      preservedCurrentSession = true;
+    } else {
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+    }
 
     writeAuditEvent({
       eventType: 'admin.user_reset',
@@ -777,10 +885,12 @@ export function createApp({
       targetUserId,
       requestId: req.requestId,
       message: `User reset by admin: ${target.email}`,
+      metadata: { preservedCurrentSession },
     });
 
     res.json({
       ok: true,
+      preservedCurrentSession,
       user: publicUser(target),
     });
   });
@@ -853,7 +963,11 @@ export function createApp({
       return res.status(400).json({ error: 'Admin users cannot suspend their own account.' });
     }
 
-    const target = db.prepare('SELECT id, email, display_name, role, auth_provider, account_status FROM users WHERE id = ?').get(targetUserId);
+    const target = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until FROM users WHERE id = ?'
+      )
+      .get(targetUserId);
     if (!target) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -868,6 +982,9 @@ export function createApp({
 
     const updatedAt = new Date().toISOString();
     db.prepare('UPDATE users SET account_status = ? WHERE id = ?').run(nextStatus, targetUserId);
+    if (nextStatus === 'active') {
+      clearLoginFailures(targetUserId);
+    }
     let revokedSessions = 0;
     if (nextStatus === 'suspended') {
       const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
@@ -925,6 +1042,37 @@ export function createApp({
       revokedSessions,
       preservedCurrentSession,
       user: publicUser(target),
+    });
+  });
+
+  app.post('/api/admin/users/:userId/unlock', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const target = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until FROM users WHERE id = ?'
+      )
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const lockState = getLoginLockState(target);
+    const hadFailureState = lockState.locked || Number(target.failed_login_attempts ?? 0) > 0 || Boolean(target.last_failed_login_at);
+    clearLoginFailures(targetUserId);
+
+    writeAuditEvent({
+      eventType: 'admin.user_unlock',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `User auth lock reset by admin: ${target.email}`,
+      metadata: { hadFailureState },
+    });
+
+    return res.json({
+      ok: true,
+      changed: hadFailureState,
     });
   });
 
