@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 export function AdminView({
   user,
   adminSummary,
@@ -18,12 +20,59 @@ export function AdminView({
   seedDemoState,
   clearUserActivity,
   unlockUserAuth,
+  createAdminUser,
+  resetUserPassword,
+  deleteUserAccount,
 }) {
+  const [createUserDraft, setCreateUserDraft] = useState({
+    displayName: '',
+    email: '',
+    password: '',
+    role: 'user',
+  });
+  const [passwordDrafts, setPasswordDrafts] = useState({});
+  const isLocalAuth = (adminSummary.auth?.mode ?? 'local') === 'local';
+
   function confirmAndRun(message, action) {
     if (!window.confirm(message)) {
       return;
     }
-    action();
+    void action();
+  }
+
+  async function onCreateUserSubmit(event) {
+    event.preventDefault();
+    const payload = {
+      displayName: createUserDraft.displayName.trim(),
+      email: createUserDraft.email.trim(),
+      password: createUserDraft.password,
+      role: createUserDraft.role,
+    };
+    const created = await createAdminUser(payload);
+    if (!created) {
+      return;
+    }
+    setCreateUserDraft({
+      displayName: '',
+      email: '',
+      password: '',
+      role: 'user',
+    });
+  }
+
+  async function onResetPassword(adminUser) {
+    const password = String(passwordDrafts[adminUser.id] ?? '');
+    if (password.length < 8) {
+      window.alert('Password must be at least 8 characters.');
+      return;
+    }
+
+    confirmAndRun(`Reset password for ${adminUser.email}?`, async () => {
+      const changed = await resetUserPassword(adminUser.id, password);
+      if (changed) {
+        setPasswordDrafts((current) => ({ ...current, [adminUser.id]: '' }));
+      }
+    });
   }
 
   return (
@@ -116,6 +165,46 @@ export function AdminView({
           />
           <button type="submit" className="secondary">Search</button>
         </form>
+        {isLocalAuth && (
+          <form className="admin-user-create-form" onSubmit={onCreateUserSubmit}>
+            <input
+              type="text"
+              placeholder="Display name"
+              value={createUserDraft.displayName}
+              onChange={(event) => setCreateUserDraft((current) => ({ ...current, displayName: event.target.value }))}
+              autoComplete="name"
+              required
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              value={createUserDraft.email}
+              onChange={(event) => setCreateUserDraft((current) => ({ ...current, email: event.target.value }))}
+              autoComplete="email"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Temporary password"
+              value={createUserDraft.password}
+              onChange={(event) => setCreateUserDraft((current) => ({ ...current, password: event.target.value }))}
+              autoComplete="new-password"
+              minLength={8}
+              required
+            />
+            <select
+              value={createUserDraft.role}
+              onChange={(event) => setCreateUserDraft((current) => ({ ...current, role: event.target.value }))}
+            >
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button type="submit" className="secondary">Create user</button>
+          </form>
+        )}
+        {!isLocalAuth && (
+          <p className="muted-copy">Managed auth mode is enabled. User creation and password reset are unavailable here.</p>
+        )}
         <div className="admin-user-list">
           {adminUsers.map((adminUser) => (
             <div key={adminUser.id} className="admin-user-row">
@@ -214,6 +303,37 @@ export function AdminView({
                   }
                 >
                   Clear activity
+                </button>
+                {isLocalAuth && (
+                  <>
+                    <input
+                      type="password"
+                      placeholder="New password"
+                      value={passwordDrafts[adminUser.id] ?? ''}
+                      onChange={(event) => setPasswordDrafts((current) => ({ ...current, [adminUser.id]: event.target.value }))}
+                      autoComplete="new-password"
+                      minLength={8}
+                      className="admin-password-input"
+                    />
+                    <button
+                      className="ghost small"
+                      onClick={() => onResetPassword(adminUser)}
+                    >
+                      Set password
+                    </button>
+                  </>
+                )}
+                <button
+                  className="ghost small"
+                  disabled={adminUser.id === user.id}
+                  onClick={() =>
+                    confirmAndRun(
+                      `Delete account ${adminUser.email}? This cannot be undone.`,
+                      () => deleteUserAccount(adminUser.id)
+                    )
+                  }
+                >
+                  Delete user
                 </button>
               </div>
             </div>

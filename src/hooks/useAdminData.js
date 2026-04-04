@@ -206,6 +206,75 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange, refreshAuth
     }
   }
 
+  async function createAdminUser(payload) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setAdminStatus(`Created user ${data.user?.email ?? payload.email}.`);
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      return true;
+    } catch (error) {
+      setAdminStatus(error.message);
+      return false;
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function resetUserPassword(targetUserId, password) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      });
+      setAdminStatus(
+        data.preservedCurrentSession
+          ? `Password reset. Revoked ${data.revokedSessions} other sessions and preserved your current session.`
+          : `Password reset. Revoked ${data.revokedSessions} active sessions.`
+      );
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        await inspectUser(targetUserId);
+      }
+      if (data.preservedCurrentSession && targetUserId === user?.id) {
+        await refreshAuthenticatedSession?.();
+      }
+      return true;
+    } catch (error) {
+      setAdminStatus(error.message);
+      return false;
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function deleteUserAccount(targetUserId) {
+    setAdminStatus('');
+    setAdminLoading(true);
+    try {
+      const data = await api(`/api/admin/users/${encodeURIComponent(targetUserId)}`, {
+        method: 'DELETE',
+      });
+      setAdminStatus(`Deleted user ${data.user?.email ?? targetUserId}.`);
+      if (selectedAdminUser?.user?.id === targetUserId) {
+        setSelectedAdminUser(null);
+      }
+      await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
+      return true;
+    } catch (error) {
+      setAdminStatus(error.message);
+      return false;
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (siteView === 'admin' && user?.role === 'admin') {
       refreshAdminSummary();
@@ -232,5 +301,8 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange, refreshAuth
     seedDemoState,
     clearUserActivity,
     unlockUserAuth,
+    createAdminUser,
+    resetUserPassword,
+    deleteUserAccount,
   };
 }

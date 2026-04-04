@@ -2186,6 +2186,7 @@ h3 {
 .admin-user-row,
 .admin-event-topline,
 .admin-user-search,
+.admin-user-create-form,
 .admin-metrics {
   display: flex;
   gap: 0.75rem;
@@ -2230,6 +2231,17 @@ h3 {
 .admin-user-search input {
   flex: 1;
   min-width: 0;
+}
+
+.admin-user-create-form input,
+.admin-user-create-form select {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.admin-password-input {
+  min-width: 9rem;
+  flex: 1 1 10rem;
 }
 
 @media (max-width: 640px) {

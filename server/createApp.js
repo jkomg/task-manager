@@ -202,6 +202,12 @@ export function createApp({
       }));
   }
 
+  function countAdminUsers() {
+    return Number(
+      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'").get()?.count ?? 0
+    );
+  }
+
   function activeSessionCountForUser(userId, nowIso = new Date().toISOString()) {
     const row = db
       .prepare(
@@ -237,9 +243,7 @@ export function createApp({
   }
 
   function authResponseForUser(user, settingsJson = user.settings_json) {
-    const adminCount = Number(
-      db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin'").get()?.count ?? 0
-    );
+    const adminCount = countAdminUsers();
     return {
       user: publicUser(user),
       settings: parseStoredSettings(settingsJson),
@@ -785,6 +789,73 @@ export function createApp({
     res.json({ users });
   });
 
+  app.post('/api/admin/users', requireAuth, requireAdmin, (req, res) => {
+    if (getAuthConfig().mode !== 'local') {
+      return res.status(403).json({ error: 'Admin user creation is disabled for managed auth mode.' });
+    }
+
+    const email = normalizeEmail(req.body?.email);
+    const password = String(req.body?.password ?? '');
+    const displayName = String(req.body?.displayName ?? '').trim();
+    const role = String(req.body?.role ?? 'user').trim().toLowerCase();
+
+    if (!email || !password || !displayName) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'role must be "user" or "admin".' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existing) {
+      return res.status(409).json({ error: 'An account already exists for that email.' });
+    }
+
+    const createdAt = new Date().toISOString();
+    const userId = crypto.randomUUID();
+    const identity = buildLocalIdentity(email);
+    db.prepare(
+      `INSERT INTO users (
+        id, email, password_hash, display_name, role, auth_provider, auth_subject, account_status, settings_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      email,
+      hashPassword(password),
+      displayName,
+      role,
+      identity.authProvider,
+      identity.authSubject,
+      'active',
+      JSON.stringify(buildDefaultState()),
+      createdAt
+    );
+
+    const createdUser = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until FROM users WHERE id = ?'
+      )
+      .get(userId);
+
+    writeAuditEvent({
+      eventType: 'admin.user_created',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      requestId: req.requestId,
+      message: `User created by admin: ${email}`,
+      metadata: { role, createdAt },
+    });
+
+    return res.status(201).json({
+      ok: true,
+      user: publicUser(createdUser),
+    });
+  });
+
   app.get('/api/admin/users/:userId', requireAuth, requireAdmin, (req, res) => {
     const targetUserId = String(req.params.userId ?? '').trim();
     const nowIso = new Date().toISOString();
@@ -825,6 +896,101 @@ export function createApp({
       activeSessionCount: activeSessionCountForUser(targetUserId, nowIso),
       sessions,
       plannerStateSummary: plannerStateSummaryForSettings(target.settings_json),
+    });
+  });
+
+  app.post('/api/admin/users/:userId/reset-password', requireAuth, requireAdmin, (req, res) => {
+    if (getAuthConfig().mode !== 'local') {
+      return res.status(403).json({ error: 'Password reset is disabled for managed auth mode.' });
+    }
+
+    const targetUserId = String(req.params.userId ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const target = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until, password_hash FROM users WHERE id = ?'
+      )
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (!canUsePasswordAuth(target)) {
+      return res.status(400).json({ error: 'Password reset is only available for local-auth users.' });
+    }
+
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), targetUserId);
+    clearLoginFailures(targetUserId);
+
+    let revokedSessions = 0;
+    let preservedCurrentSession = false;
+    if (targetUserId === req.user.id) {
+      const result = db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(targetUserId, req.sessionToken);
+      revokedSessions = Number(result.changes ?? 0);
+      preservedCurrentSession = true;
+    } else {
+      const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(targetUserId);
+      revokedSessions = Number(result.changes ?? 0);
+    }
+
+    writeAuditEvent({
+      eventType: 'admin.user_password_reset',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `User password reset by admin: ${target.email}`,
+      metadata: { revokedSessions, preservedCurrentSession },
+    });
+
+    return res.json({
+      ok: true,
+      revokedSessions,
+      preservedCurrentSession,
+      user: publicUser(target),
+    });
+  });
+
+  app.delete('/api/admin/users/:userId', requireAuth, requireAdmin, (req, res) => {
+    const targetUserId = String(req.params.userId ?? '').trim();
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'User ID is required.' });
+    }
+    if (targetUserId === req.user.id) {
+      return res.status(400).json({ error: 'Admin users cannot delete their own account.' });
+    }
+
+    const target = db
+      .prepare(
+        'SELECT id, email, display_name, role, auth_provider, account_status, failed_login_attempts, last_failed_login_at, locked_until FROM users WHERE id = ?'
+      )
+      .get(targetUserId);
+    if (!target) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (target.role === 'admin' && countAdminUsers() <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last admin account.' });
+    }
+
+    writeAuditEvent({
+      eventType: 'admin.user_deleted',
+      level: 'warn',
+      actorUserId: req.user.id,
+      targetUserId,
+      requestId: req.requestId,
+      message: `User deleted by admin: ${target.email}`,
+      metadata: { role: target.role },
+    });
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(targetUserId);
+
+    return res.json({
+      ok: true,
+      deletedUserId: targetUserId,
+      user: publicUser(target),
     });
   });
 
