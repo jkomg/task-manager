@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { DEFAULT_FEATURE_FLAGS } from '../lib/focusFlowData.js';
 
-export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
+export function useAdminData({ user, siteView, onFeatureFlagsChange, refreshAuthenticatedSession }) {
   const [adminSummary, setAdminSummary] = useState({
     flags: DEFAULT_FEATURE_FLAGS,
     metrics: null,
@@ -76,6 +76,9 @@ export function useAdminData({ user, siteView, onFeatureFlagsChange }) {
         method: 'POST',
         body: JSON.stringify(options),
       });
+      if (options.preserveCurrentSession && targetUserId === user?.id) {
+        await refreshAuthenticatedSession?.();
+      }
       setAdminStatus(options.preserveCurrentSession ? 'Your state was reset and your current session was preserved.' : 'User state reset.');
       await Promise.all([refreshAdminSummary(), searchAdminUsers()]);
       if (selectedAdminUser?.user?.id === targetUserId) {

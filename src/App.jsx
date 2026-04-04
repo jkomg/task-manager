@@ -80,6 +80,7 @@ export default function App() {
     loadedSettingsRef,
     handleAuthSubmit,
     claimAdminAccess,
+    refreshAuthenticatedSession,
     handleLogout,
     updateAuthForm,
   } = useAuthSession({
@@ -110,6 +111,7 @@ export default function App() {
     user,
     siteView,
     onFeatureFlagsChange: setFeatureFlags,
+    refreshAuthenticatedSession,
   });
 
   const activePhase = useMemo(
