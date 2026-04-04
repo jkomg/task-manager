@@ -86,6 +86,7 @@ body {
     radial-gradient(ellipse at 50% 50%, rgba(152, 120, 208, 0.04) 0, transparent 60%),
     linear-gradient(165deg, var(--bg-0) 0%, var(--bg-1) 100%);
   background-attachment: fixed;
+  overflow-x: hidden;
 }
 
 #root {
@@ -97,11 +98,15 @@ a {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--line);
@@ -114,6 +119,12 @@ input::placeholder {
   color: var(--muted);
 }
 
+textarea {
+  min-height: 5.8rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 button {
   border: 0;
   border-radius: 999px;
@@ -121,8 +132,10 @@ button {
   background: var(--primary);
   color: #f0f8ff;
   padding: 0.68rem 1rem;
+  min-height: 2.6rem;
   font-weight: 700;
   transition: background 140ms ease, transform 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+  touch-action: manipulation;
 }
 
 button:hover {
@@ -156,8 +169,9 @@ button.ghost:hover {
 }
 
 button.small {
-  font-size: 0.9rem;
-  padding: 0.52rem 0.78rem;
+  font-size: 0.88rem;
+  padding: 0.52rem 0.82rem;
+  min-height: 2.25rem;
 }
 
 .auth-shell {
@@ -214,7 +228,7 @@ button.small {
   display: block;
   max-width: 760px;
   margin: 0 auto;
-  padding: 0.75rem;
+  padding: 0.65rem;
 }
 
 .main-grid,
@@ -233,10 +247,10 @@ button.small {
 }
 
 .card {
-  border-radius: 22px;
+  border-radius: 18px;
   border: 1px solid var(--line);
   background: var(--surface);
-  padding: 1rem;
+  padding: 0.9rem;
   backdrop-filter: blur(16px);
   box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 10px 30px rgba(28, 51, 74, 0.12);
 }
@@ -250,10 +264,10 @@ button.small {
 .topbar-card {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 0.8rem;
-  position: sticky;
-  top: 0.5rem;
+  position: static;
   z-index: 3;
 }
 
@@ -270,6 +284,9 @@ button.small {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .profile-menu-wrap {
@@ -277,8 +294,8 @@ button.small {
 }
 
 .profile-trigger {
-  width: 2.6rem;
-  height: 2.6rem;
+  width: 2.5rem;
+  height: 2.5rem;
   padding: 0;
   border-radius: 999px;
   font-weight: 800;
@@ -291,7 +308,8 @@ button.small {
   position: absolute;
   right: 0;
   top: calc(100% + 0.45rem);
-  min-width: 10.8rem;
+  min-width: 10.5rem;
+  max-width: min(14rem, calc(100vw - 1.25rem));
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface-strong);
@@ -549,6 +567,9 @@ h3 {
 .task-row {
   justify-content: space-between;
   align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem 0.62rem;
 }
 
 .timer-pill {
@@ -709,6 +730,35 @@ h3 {
 .task-row.editing {
   background: rgba(255, 255, 255, 0.07);
   align-items: stretch;
+  display: block;
+}
+
+.task-actions {
+  width: 100%;
+  grid-column: 2;
+  justify-content: flex-start;
+}
+
+.task-actions > button {
+  flex-shrink: 0;
+}
+
+.task-actions .task-timer-btn,
+.task-actions .ghost.small {
+  min-height: 2rem;
+}
+
+.task-actions .task-timer-btn {
+  min-width: 2.1rem;
+  text-align: center;
+}
+
+.button-row {
+  width: 100%;
+}
+
+.button-row > button {
+  flex: 1 1 auto;
 }
 
 .task-edit-form {
@@ -850,6 +900,8 @@ h3 {
   font-weight: 700;
   color: var(--primary);
   letter-spacing: 0.04em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 /* Timer button on task row */
@@ -884,9 +936,9 @@ h3 {
 
 .exercise-add-form {
   display: grid;
-  grid-template-columns: minmax(10rem, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
-  align-items: center;
+  align-items: stretch;
 }
 
 .exercise-list {
@@ -896,8 +948,9 @@ h3 {
 
 .exercise-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 0.6rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -910,7 +963,8 @@ h3 {
 }
 
 .exercise-row select {
-  min-width: 9rem;
+  min-width: 0;
+  width: 100%;
 }
 
 /* Phase sections */
@@ -948,10 +1002,11 @@ h3 {
 
 .phase-section-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.85rem 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0.85rem;
   cursor: pointer;
   user-select: none;
 }
@@ -964,6 +1019,8 @@ h3 {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  min-width: 0;
+  flex: 1 1 10rem;
 }
 
 .active-dot {
@@ -982,6 +1039,7 @@ h3 {
   font-weight: 800;
   color: var(--ink);
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 
 .phase-header-meta {
@@ -994,7 +1052,10 @@ h3 {
 .phase-header-right {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
+  width: 100%;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
@@ -1002,12 +1063,14 @@ h3 {
   font-size: 0.78rem;
   color: var(--muted);
   font-weight: 600;
+  margin-right: auto;
 }
 
 .phase-timer-inline {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .phase-timer-display {
@@ -1020,7 +1083,7 @@ h3 {
 
 /* Task list within phase */
 .phase-section .task-list {
-  padding: 0 0.75rem;
+  padding: 0 0.55rem;
   margin-top: 0;
 }
 
@@ -1029,7 +1092,7 @@ h3 {
   border: none;
   border-top: 1px solid var(--line);
   border-radius: 0;
-  padding: 0.7rem 0.25rem;
+  padding: 0.7rem 0.12rem;
 }
 
 .phase-section.active .task-row {
@@ -1038,7 +1101,7 @@ h3 {
 
 /* Quick add */
 .quick-add-form {
-  padding: 0.5rem 1rem 0.75rem;
+  padding: 0.5rem 0.85rem 0.75rem;
 }
 
 .quick-add-input {
@@ -1062,12 +1125,12 @@ h3 {
 }
 
 .phase-section .suggestion-strip {
-  padding: 0 1rem 0.5rem;
+  padding: 0 0.85rem 0.5rem;
   margin-top: 0;
 }
 
 .suggest-btn {
-  margin: 0.1rem 1rem 0.75rem;
+  margin: 0.1rem 0.85rem 0.75rem;
   font-size: 0.8rem;
   font-weight: 700;
   background: var(--warm-light);
@@ -1112,6 +1175,8 @@ h3 {
 .context-weather-inline {
   font-size: 0.82rem;
   color: var(--muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .context-strip-circadian {
@@ -1328,7 +1393,7 @@ h3 {
 
 .phase-map-segment {
   flex: 1;
-  min-width: 7rem;
+  min-width: 6.2rem;
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
@@ -1339,7 +1404,7 @@ h3 {
   text-align: left;
   border: 1.5px solid transparent;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-  white-space: nowrap;
+  white-space: normal;
   font-weight: 600;
 }
 
@@ -1400,7 +1465,8 @@ h3 {
   font-size: 0.84rem;
   font-weight: 700;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 0.35rem;
 }
 
@@ -1588,9 +1654,10 @@ h3 {
 
 .carryover-task-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  flex-wrap: wrap;
   padding: 0.45rem 0.6rem;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
@@ -1607,9 +1674,10 @@ h3 {
 .carryover-task-title {
   font-size: 0.875rem;
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  overflow-wrap: anywhere;
 }
 
 .carryover-task-phase {
@@ -1857,8 +1925,86 @@ h3 {
     padding: 1rem 1.5rem;
   }
 
+  .card {
+    border-radius: 22px;
+    padding: 1rem;
+  }
+
+  .topbar-card {
+    align-items: center;
+    flex-wrap: nowrap;
+    position: sticky;
+    top: 0.5rem;
+  }
+
+  .button-row > button {
+    flex: 0 0 auto;
+  }
+
+  .task-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .task-actions {
+    width: auto;
+    grid-column: 3;
+    justify-content: flex-end;
+  }
+
+  .phase-section-header {
+    align-items: center;
+    flex-wrap: nowrap;
+    padding: 0.85rem 1rem;
+  }
+
+  .phase-header-right {
+    width: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  .phase-task-count {
+    margin-right: 0;
+  }
+
+  .phase-section .task-list {
+    padding: 0 0.75rem;
+  }
+
+  .phase-section .task-row {
+    padding: 0.7rem 0.25rem;
+  }
+
+  .quick-add-form {
+    padding: 0.5rem 1rem 0.75rem;
+  }
+
+  .phase-section .suggestion-strip {
+    padding: 0 1rem 0.5rem;
+  }
+
+  .suggest-btn {
+    margin: 0.1rem 1rem 0.75rem;
+  }
+
   .phase-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .exercise-add-form {
+    grid-template-columns: 1fr 11rem auto;
+    align-items: center;
+  }
+
+  .exercise-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .exercise-row select {
+    width: auto;
+    min-width: 10rem;
   }
 
   .add-task-form {
@@ -1868,6 +2014,11 @@ h3 {
   .settings-phase-row {
     grid-template-columns: 1.45fr 1fr auto;
     align-items: end;
+  }
+
+  .admin-action-row {
+    justify-content: flex-end;
+    width: auto;
   }
 }
 
@@ -1898,23 +2049,6 @@ h3 {
 
   .task-actions {
     gap: 0.35rem;
-  }
-
-  .phase-section-header {
-    padding: 0.7rem 0.75rem;
-  }
-
-  .exercise-add-form {
-    grid-template-columns: 1fr;
-  }
-
-  .exercise-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .exercise-row select {
-    width: 100%;
   }
 }
 
@@ -1961,7 +2095,8 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .admin-event-row p,
@@ -1991,7 +2126,7 @@ h3 {
 
 .admin-user-search input {
   flex: 1;
-  min-width: 14rem;
+  min-width: 0;
 }
 
 @media (max-width: 640px) {
