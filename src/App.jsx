@@ -107,6 +107,9 @@ export default function App() {
     seedDemoState,
     clearUserActivity,
     unlockUserAuth,
+    createAdminUser,
+    resetUserPassword,
+    deleteUserAccount,
   } = useAdminData({
     user,
     siteView,
@@ -856,6 +859,9 @@ export default function App() {
             seedDemoState={seedDemoState}
             clearUserActivity={clearUserActivity}
             unlockUserAuth={unlockUserAuth}
+            createAdminUser={createAdminUser}
+            resetUserPassword={resetUserPassword}
+            deleteUserAccount={deleteUserAccount}
           />
         )}
 

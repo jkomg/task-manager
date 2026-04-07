@@ -615,3 +615,201 @@ test('admin can seed demo state and clear user activity', async () => {
     await server.close();
   }
 });
+
+test('admin can create users and rejects duplicates', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-admin-create-user',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+
+    const createUser = await server.request('/api/admin/users', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({
+        displayName: 'Casey',
+        email: 'casey@example.com',
+        password: 'temporarypass',
+        role: 'user',
+      }),
+    });
+    assert.equal(createUser.response.status, 201);
+    assert.equal(createUser.body.ok, true);
+    assert.equal(createUser.body.user.email, 'casey@example.com');
+    assert.equal(createUser.body.user.role, 'user');
+
+    const createdLogin = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'casey@example.com',
+        password: 'temporarypass',
+      }),
+    });
+    assert.equal(createdLogin.response.status, 200);
+
+    const createDuplicate = await server.request('/api/admin/users', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({
+        displayName: 'Casey 2',
+        email: 'casey@example.com',
+        password: 'anotherpass',
+        role: 'admin',
+      }),
+    });
+    assert.equal(createDuplicate.response.status, 409);
+  } finally {
+    await server.close();
+  }
+});
+
+test('admin can reset a user password and revoke active sessions', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-admin-reset-password',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+
+    const userRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Jordan',
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const userCookie = readCookie(userRegistration.response.headers.get('set-cookie'));
+    const userId = userRegistration.body.user.id;
+
+    const resetPassword = await server.request(`/api/admin/users/${userId}/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({ password: 'brandnewpassword' }),
+    });
+    assert.equal(resetPassword.response.status, 200);
+    assert.equal(resetPassword.body.ok, true);
+    assert.equal(resetPassword.body.revokedSessions, 1);
+    assert.equal(resetPassword.body.preservedCurrentSession, false);
+
+    const revokedSession = await server.request('/api/auth/session', {
+      headers: { cookie: userCookie },
+    });
+    assert.equal(revokedSession.response.status, 401);
+
+    const oldPasswordLogin = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'jordan@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    assert.equal(oldPasswordLogin.response.status, 401);
+
+    const newPasswordLogin = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'jordan@example.com',
+        password: 'brandnewpassword',
+      }),
+    });
+    assert.equal(newPasswordLogin.response.status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test('admin can delete users but cannot delete their own account', async () => {
+  const server = await startTestServer({
+    name: 'focusflow-admin-delete-user',
+    adminEmails: ['admin@example.com'],
+  });
+  try {
+    const adminRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Admin',
+        email: 'admin@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const adminCookie = readCookie(adminRegistration.response.headers.get('set-cookie'));
+    const adminId = adminRegistration.body.user.id;
+
+    const userRegistration = await server.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: 'Taylor',
+        email: 'taylor@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    const userCookie = readCookie(userRegistration.response.headers.get('set-cookie'));
+    const userId = userRegistration.body.user.id;
+
+    const selfDelete = await server.request(`/api/admin/users/${adminId}`, {
+      method: 'DELETE',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(selfDelete.response.status, 400);
+
+    const deleteUser = await server.request(`/api/admin/users/${userId}`, {
+      method: 'DELETE',
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(deleteUser.response.status, 200);
+    assert.equal(deleteUser.body.ok, true);
+    assert.equal(deleteUser.body.deletedUserId, userId);
+
+    const deletedSession = await server.request('/api/auth/session', {
+      headers: { cookie: userCookie },
+    });
+    assert.equal(deletedSession.response.status, 401);
+
+    const deletedUserLogin = await server.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'taylor@example.com',
+        password: 'longenoughpassword',
+      }),
+    });
+    assert.equal(deletedUserLogin.response.status, 401);
+  } finally {
+    await server.close();
+  }
+});
